@@ -4,19 +4,25 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Monopoly Taiwan - Ultimate Edition</title>
-    
+
+    <!-- Vue / Socket.IO / 動畫 / UI 套件 -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+
+    <!-- 圓潤字體 Nunito -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+
     <style>
         :root { --bg: #1c2541; --board-bg: #ecf0f1; }
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
             margin: 0;
-            font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            font-family: "Nunito", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
             background: radial-gradient(circle at top left, #304ffe 0, #141e30 40%, #0f172a 100%);
             height: 100vh;
             color: white;
@@ -35,40 +41,46 @@
             max-width: 1400px;
             margin: 0 auto;
             display: grid;
-            grid-template-columns: minmax(750px, 1fr) 330px;
+            grid-template-columns: minmax(780px, 1fr) 330px;
             gap: 16px;
             padding: 12px 16px;
         }
         .board-wrap { display:flex; align-items:center; justify-content:center; }
 
+        /* 棋盤：外框更厚、陰影更柔和 */
         .board {
-            width: 960px;
-            height: 960px;
-            background: radial-gradient(circle at center, #ffffff 0, #f7f8fb 40%, #e0e7ff 100%);
-            border-radius: 26px;
-            box-shadow: 0 18px 40px rgba(0,0,0,0.55), 0 0 0 3px rgba(255,255,255,0.08);
+            width: 900px;
+            height: 900px;
+            background: radial-gradient(circle at center, #ffffff 0, #f8fafc 40%, #e5edf7 100%);
+            border-radius: 30px;
+            box-shadow:
+                0 22px 50px rgba(15,23,42,0.65),
+                0 0 0 3px rgba(148,163,184,0.35),
+                0 0 0 10px rgba(15,23,42,0.9);
             display: grid;
-            /* 外圈 row/column 比中間更厚，中間縮小 */
-            grid-template-columns: 1.6fr repeat(9, 0.6fr) 1.6fr;
-            grid-template-rows: 1.6fr repeat(9, 0.6fr) 1.6fr;
+            /* 外圈較厚，中間區域縮小一點 */
+            grid-template-columns: 1.5fr repeat(9, 0.7fr) 1.5fr;
+            grid-template-rows: 1.5fr repeat(9, 0.7fr) 1.5fr;
             position: relative;
-            color:#2c3e50;
+            color:#0f172a;
             overflow: hidden;
         }
 
         .board::before {
             content:"";
             position:absolute;
-            inset:14px;
-            border-radius:22px;
-            border:1px solid rgba(0,0,0,0.04);
-            box-shadow: inset 0 0 30px rgba(0,0,0,0.06);
+            inset:16px;
+            border-radius:24px;
+            border:1px solid rgba(148,163,184,0.35);
+            box-shadow:
+                inset 0 0 35px rgba(15,23,42,0.08),
+                inset 0 0 0 1px rgba(255,255,255,0.4);
             pointer-events:none;
         }
 
         .ui-panel {
             height: 100%;
-            background: linear-gradient(150deg, rgba(13,27,65,0.92), rgba(6,12,30,0.98));
+            background: linear-gradient(150deg, rgba(13,27,65,0.95), rgba(6,12,30,0.98));
             border-radius: 20px;
             padding: 14px 14px 12px;
             display: flex;
@@ -87,7 +99,6 @@
             justify-content:space-between;
             align-items:center;
             margin-bottom:4px;
-            gap:8px;
         }
         .panel-header-left {
             display:flex;
@@ -96,8 +107,8 @@
         }
         .panel-title {
             font-size:14px;
-            font-weight:700;
-            letter-spacing:0.02em;
+            font-weight:800;
+            letter-spacing:0.06em;
         }
         .panel-sub {
             font-size:11px;
@@ -114,41 +125,21 @@
             gap:6px;
         }
 
-        .panel-exit-btn {
-            border:none;
-            border-radius:999px;
-            background:#334155;
-            color:#e5e7eb;
-            padding:5px 10px;
-            font-size:11px;
-            display:inline-flex;
-            align-items:center;
-            gap:4px;
-            cursor:pointer;
-        }
-        .panel-exit-btn:hover {
-            background:#475569;
-        }
-
         .player-card {
             display:flex;
             align-items:center;
             justify-content:space-between;
             padding:8px 10px;
-            border-radius:10px;
-            background:rgba(15,23,42,0.9);
+            border-radius:12px;
+            background:rgba(15,23,42,0.92);
             border-left:5px solid transparent;
             margin-bottom:6px;
             font-size:12px;
             box-shadow:0 0 0 1px rgba(148,163,184,0.15);
         }
         .player-card.active {
-            background:linear-gradient(145deg, rgba(253,224,71,0.15), rgba(15,23,42,0.95));
-            box-shadow:0 0 12px rgba(253,224,71,0.8);
-        }
-        .player-card.bankrupt {
-            opacity:0.4;
-            filter:grayscale(0.9);
+            background:linear-gradient(145deg, rgba(250,204,21,0.18), rgba(15,23,42,0.96));
+            box-shadow:0 0 14px rgba(250,204,21,0.9);
         }
         .player-sub {
             font-size:11px;
@@ -175,7 +166,7 @@
             cursor:pointer;
             background:#3498db;
             color:white;
-            font-weight:bold;
+            font-weight:700;
             font-size:0.95em;
             box-shadow:0 4px 12px rgba(52,152,219,0.6);
             transition: all 0.15s ease;
@@ -188,10 +179,10 @@
         .float-text {
             position: absolute;
             font-weight: 900;
-            font-size: 1.2em;
+            font-size: 1.1em;
             pointer-events: none;
             z-index: 100;
-            text-shadow: 0 0 3px rgba(255,255,255,0.9);
+            text-shadow: 0 0 6px rgba(255,255,255,0.95);
         }
 
         .lobby {
@@ -204,35 +195,36 @@
             background: radial-gradient(circle at top, #ffffff 0, #e5e7eb 45%, #cbd5f5 100%);
             padding: 40px 38px 34px;
             border-radius: 24px;
-            width: 460px;
+            width: 420px;
             text-align: center;
             color: #111827;
             box-shadow: 0 24px 45px rgba(15,23,42,0.85);
         }
         .lobby input {
             width: 82%; padding: 10px; margin: 8px auto;
-            font-size: 1.05em; border: 1px solid #d1d5db; border-radius: 8px;
+            font-size: 1.05em; border: 1px solid #d1d5db; border-radius: 999px;
+            font-family: "Nunito", system-ui;
         }
 
-        .dice-stage { 
+        .dice-stage {
             grid-column: 2/11; grid-row: 2/11;
             display:flex; flex-direction:column; align-items:center; justify-content:center;
             pointer-events:none;
         }
         .dice-title {
             font-size:3.6em;
-            opacity:0.07;
+            opacity:0.05;
             margin-bottom:8px;
-            letter-spacing:0.22em;
+            letter-spacing:0.28em;
         }
         .dice-container { display:flex; gap:18px; pointer-events:auto; margin-bottom:6px; }
         .die {
             width:64px; height:64px;
             background:#f9fafb;
-            border-radius:14px;
+            border-radius:18px;
             border:2px solid #cbd5e1;
             position:relative;
-            box-shadow:0 6px 14px rgba(15,23,42,0.5);
+            box-shadow:0 8px 16px rgba(15,23,42,0.55);
         }
         .pip {
             width:10px; height:10px;
@@ -252,8 +244,9 @@
             color:#4b5563;
         }
 
+        /* 棋格：改成較厚、有色塊、圓角一點 */
         .tile {
-            border: 1px solid #cbd5e1;
+            border: 1px solid rgba(148,163,184,0.55);
             position: relative;
             background: #ffffff;
             display:flex;
@@ -261,42 +254,47 @@
             justify-content:space-between;
             overflow:hidden;
             cursor:pointer;
-            transition: box-shadow .12s ease, transform .12s ease;
+            transition: box-shadow .12s ease, transform .12s ease, background .12s ease;
+            border-radius: 8px;
         }
         .tile:hover {
-            box-shadow:0 0 10px rgba(37,99,235,0.6);
+            box-shadow:0 0 10px rgba(59,130,246,0.75);
             transform: translateY(-1px);
             z-index:5;
         }
-        .current-tile {
-            box-shadow: 0 0 0 3px rgba(250,204,21,0.9), 0 0 18px rgba(250,204,21,0.9);
-            position:relative;
+        /* 當前玩家所在格子高亮 */
+        .tile-current {
+            box-shadow:0 0 0 3px rgba(250,204,21,0.95), 0 0 16px rgba(250,204,21,0.8);
+            transform: translateY(-2px);
             z-index:6;
         }
+
         .tile-header {
-            height: 24px;
+            height: 22px;
+            border-bottom:1px solid rgba(15,23,42,0.06);
         }
         .tile-body {
             flex:1;
-            font-size: 12.5px;
-            padding: 4px 3px;
+            font-size: 12px;
+            padding: 4px 4px;
             text-align:center;
             display:flex;
             flex-direction:column;
             justify-content:center;
             align-items:center;
             color:#020617;
+            line-height:1.25;
         }
-        .tile-price { font-weight:bold; margin-top:1px; font-size:12px; }
+        .tile-price { font-weight:800; margin-top:1px; font-size:11.5px; }
 
         .corner {
             display:flex;
             align-items:center;
             justify-content:center;
-            font-size: 13px;
+            font-size: 12px;
             text-align:center;
             padding: 4px;
-            font-weight:bold;
+            font-weight:800;
         }
 
         .bottom, .top { writing-mode: horizontal-tb; }
@@ -305,19 +303,20 @@
         .house-icon, .hotel-icon {
             position:absolute;
             bottom:2px;
-            left:2px;
+            left:3px;
             color:#22c55e;
             font-size:11px;
+            text-shadow:0 0 3px rgba(15,23,42,0.8);
         }
         .hotel-icon { color:#e11d48; }
 
         .token {
             width: 22px; height: 22px;
-            border-radius: 50%;
+            border-radius: 999px;
             position:absolute;
             z-index:50;
             border:2px solid rgba(255,255,255,0.95);
-            box-shadow:0 0 5px rgba(0,0,0,0.7);
+            box-shadow:0 0 6px rgba(15,23,42,0.9);
         }
 
         /* 地產卡片彈窗 */
@@ -403,13 +402,12 @@
     <!-- LOBBY -->
     <div class="lobby" v-if="!loading && state.status === 'LOBBY'">
         <div class="lobby-box">
-            <h1 style="color:#111827; margin-bottom:10px;">
+            <h1 style="color:#111827; margin-bottom:10px; font-weight:800;">
                 <i class="fa-solid fa-dice"></i> 台灣大富翁
             </h1>
             <p style="font-size:13px; color:#4b5563; margin-bottom:14px;">
                 建立房間或輸入房號，邀請朋友一起連線對戰。
             </p>
-
             <div v-if="!joined">
                 <input v-model="nickname" placeholder="請輸入暱稱 (Enter)" @keyup.enter="join">
                 <input v-model="roomId" placeholder="請輸入房號 (例如 ROOM1)" @keyup.enter="join">
@@ -417,52 +415,17 @@
                     相同房號的玩家會進入同一局；輸入新的房號即可建立新房間。
                 </p>
                 <button class="btn-action btn-roll" @click="join">加入 / 建立房間</button>
-
-                <!-- 已開房間列表 -->
-                <div style="margin-top:18px; text-align:left;">
-                    <div style="font-size:12px; color:#374151; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
-                        <span><i class="fa-solid fa-door-open"></i> 已開房間</span>
-                        <button class="btn-action" style="padding:4px 10px; font-size:11px; background:#4b5563; box-shadow:none;" @click="refreshRooms">
-                            刷新
-                        </button>
-                    </div>
-                    <div v-if="roomList.length === 0" style="font-size:12px; color:#6b7280;">
-                        目前沒有可顯示的房間
-                    </div>
-                    <div v-for="r in roomList" :key="r.id"
-                         style="font-size:12px; padding:4px 6px; border-radius:8px; background:#e5e7eb; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
-                        <div>
-                            <div style="font-weight:bold;">{{ r.id }}</div>
-                            <div style="font-size:11px; color:#4b5563;">
-                                玩家：{{ r.playerCount }}/4 · 狀態：{{ roomStatusText(r.status) }}
-                            </div>
-                        </div>
-                        <button class="btn-action btn-roll"
-                                style="padding:4px 8px; font-size:11px;"
-                                @click="roomId = r.id">
-                            使用
-                        </button>
-                    </div>
-                </div>
             </div>
-
-            <!-- 已加入 Lobby -->
             <div v-else>
                 <h3 style="margin-bottom:8px;">等待玩家 ({{ Object.keys(state.players).length }}/4)</h3>
                 <div v-for="p in state.players" :key="p.id" :style="{color: p.color, margin:'5px'}">
                     <i class="fa-solid fa-user"></i> {{ p.name }}
-                    <span v-if="p.id === myId" style="color:#f97316; font-size:11px;">（你）</span>
                 </div>
                 <br>
                 <button class="btn-action btn-build" v-if="isHost && Object.keys(state.players).length >= 2" @click="start">
                     <i class="fa-solid fa-play"></i> 開始遊戲
                 </button>
                 <p v-else style="font-size:12px;color:#4b5563;">等待房主開始...</p>
-                <div style="margin-top:12px;">
-                    <button class="panel-exit-btn" @click="leaveRoom">
-                        <i class="fa-solid fa-right-from-bracket"></i> 離開房間
-                    </button>
-                </div>
             </div>
         </div>
     </div>
@@ -476,8 +439,8 @@
         <div class="board-wrap">
             <div class="board" id="board">
                 <div v-for="(t, i) in state.map" :key="t.id"
-                     :class="['tile', getPosClass(i), isCurrentTile(i) ? 'current-tile' : '']"
-                     :style="getGridStyle(i)"
+                     :class="['tile', getPosClass(i), { 'tile-current': isCurrentTile(i) }]"
+                     :style="[getGridStyle(i), getTileStyle(t)]"
                      :id="'tile-'+i"
                      @click="showTileCard(t)">
                     <template v-if="!isCorner(i)">
@@ -552,14 +515,6 @@
                                 </li>
                             </ol>
                         </div>
-                        <div style="margin-top:14px; display:flex; gap:10px; justify-content:center;">
-                            <button v-if="isHost" class="btn-action btn-build" @click="rematch">
-                                <i class="fa-solid fa-rotate-right"></i> 再來一局
-                            </button>
-                            <button class="btn-action btn-roll" @click="leaveRoom">
-                                <i class="fa-solid fa-right-from-bracket"></i> 離開房間
-                            </button>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -576,30 +531,18 @@
                         {{ turnText }}
                     </div>
                 </div>
-                <div style="display:flex; align-items:center; gap:6px;">
-                    <div class="panel-badge">
-                        <i class="fa-solid fa-users"></i>
-                        {{ Object.keys(state.players).length }}/4
-                    </div>
-                    <button class="panel-exit-btn" @click="leaveRoom">
-                        <i class="fa-solid fa-door-open"></i>
-                    </button>
+                <div class="panel-badge">
+                    <i class="fa-solid fa-users"></i>
+                    {{ Object.keys(state.players).length }}/4
                 </div>
             </div>
 
             <div v-for="pid in state.order" :key="pid"
                  class="player-card"
-                 :class="{
-                    active: state.order[state.turnIndex] === pid && state.status === 'PLAYING',
-                    bankrupt: state.players[pid].bankrupt
-                 }"
+                 :class="{active: state.order[state.turnIndex] === pid && state.status === 'PLAYING'}"
                  :style="{borderLeftColor: state.players[pid].color}">
                 <div>
-                    <strong>
-                        {{ state.players[pid].name }}
-                        <span v-if="pid === myId" style="color:#f97316; font-size:11px;">（你）</span>
-                        <span v-if="state.players[pid].bankrupt" style="color:#f87171; font-size:11px;">（破產）</span>
-                    </strong>
+                    <strong>{{ state.players[pid].name }}</strong>
                     <div class="player-sub">
                         地產: {{ state.players[pid].properties.length }}
                     </div>
@@ -698,7 +641,6 @@ const app = createApp({
         const myId = ref('');
         const playerToken = ref('');
         const logs = ref([]);
-        const roomList = ref([]);
 
         const animating = ref(false);
         const buildTarget = ref(null);
@@ -792,21 +734,10 @@ const app = createApp({
             const w = window.innerWidth;
             const h = window.innerHeight;
 
-            const scaleW = (w - 380) / 960;
-            const scaleH = (h - 60) / 980;
+            const scaleW = (w - 380) / 900;
+            const scaleH = (h - 60) / 920;
             scale.value = Math.min(1, scaleW, scaleH, 1.05);
             if (scale.value <= 0) scale.value = 0.75;
-        };
-
-        const refreshRooms = () => {
-            socket.emit('listRooms');
-        };
-
-        const roomStatusText = (s) => {
-            if (s === 'LOBBY') return '等待中';
-            if (s === 'PLAYING') return '遊戲中';
-            if (s === 'ENDED') return '已結束';
-            return s || '';
         };
 
         onMounted(() => {
@@ -821,18 +752,11 @@ const app = createApp({
             }
             playerToken.value = token;
             setInterval(syncTokens, 500);
-
-            // 一進來先抓一次房間列表
-            refreshRooms();
         });
 
         // Socket 事件
         socket.on('stateUpdate', (s) => {
             if (!animating.value) Object.assign(state, s);
-        });
-
-        socket.on('roomList', (list) => {
-            roomList.value = list || [];
         });
 
         socket.on('joinSuccess', (d) => {
@@ -952,27 +876,6 @@ const app = createApp({
             liquidation.properties = [];
         });
 
-        // 伺服器通知已離開房間
-        socket.on('leftRoom', () => {
-            joined.value = false;
-            isHost.value = false;
-            myId.value = '';
-            // 重置遊戲狀態
-            state.players = {};
-            state.map = [];
-            state.order = [];
-            state.turnIndex = 0;
-            state.status = 'LOBBY';
-            state.hostId = null;
-            state.winnerId = null;
-            logs.value = [];
-            liquidation.active = false;
-            liquidation.playerId = '';
-            liquidation.deficit = 0;
-            liquidation.properties = [];
-            refreshRooms();
-        });
-
         // 擲骰子動畫（雙骰子＋點數顯示）
         const pipMap = {
             1:[4],
@@ -1054,8 +957,8 @@ const app = createApp({
             el.className = 'float-text';
             el.innerText = text;
             el.style.color = color;
-            el.style.left = (tRect.left - bRect.left + 10) + 'px';
-            el.style.top = (tRect.top - bRect.top) + 'px';
+            el.style.left = (tRect.left - bRect.left + 8) + 'px';
+            el.style.top = (tRect.top - bRect.top - 4) + 'px';
 
             board.appendChild(el);
             gsap.to(el, { y: -50, opacity: 0, duration: 1.5, onComplete: () => el.remove() });
@@ -1101,25 +1004,65 @@ const app = createApp({
             if (i < 30) return 'top';
             return 'right';
         };
+
         const getColor = g => ({
-            Brown: '#7b341e',
+            Brown: '#854d0e',
             LightBlue: '#0ea5e9',
             Pink: '#db2777',
             Orange: '#f97316',
             Red: '#ef4444',
-            Yellow: '#facc15',
+            Yellow: '#eab308',
             Green: '#22c55e',
             DarkBlue: '#1d4ed8'
-        }[g] || '#e5e7eb');
+        }[g] || 'rgba(15,23,42,0.85)');
+
         const getOwnerColor = oid => state.players[oid]?.color || 'transparent';
         const getOwnerName = oid => state.players[oid]?.name || '無';
 
-        const isCurrentTile = (i) => {
+        // 每個格子的顏色背景（高級桌遊感）
+        const getTileStyle = (tile) => {
+            if (!tile) return {};
+            if (tile.type === 'PROP') {
+                const bgMap = {
+                    Brown: 'linear-gradient(180deg,#fef3c7,#fffbeb)',
+                    LightBlue: 'linear-gradient(180deg,#e0f2fe,#eff6ff)',
+                    Pink: 'linear-gradient(180deg,#fce7f3,#fdf2ff)',
+                    Orange: 'linear-gradient(180deg,#ffedd5,#fff7ed)',
+                    Red: 'linear-gradient(180deg,#fee2e2,#fef2f2)',
+                    Yellow: 'linear-gradient(180deg,#fef9c3,#fffbeb)',
+                    Green: 'linear-gradient(180deg,#dcfce7,#f0fdf4)',
+                    DarkBlue: 'linear-gradient(180deg,#e0e7ff,#eef2ff)'
+                };
+                return { background: bgMap[tile.group] || 'linear-gradient(180deg,#e5e7eb,#f9fafb)' };
+            }
+            if (tile.type === 'RAIL') {
+                return { background: 'linear-gradient(180deg,#e0f2fe,#f9fafb)' };
+            }
+            if (tile.type === 'UTIL') {
+                return { background: 'linear-gradient(180deg,#dcfce7,#f9fafb)' };
+            }
+            if (tile.type === 'CHANCE') {
+                return { background: 'linear-gradient(180deg,#fef3c7,#fffbeb)' };
+            }
+            if (tile.type === 'DESTINY') {
+                return { background: 'linear-gradient(180deg,#e0e7ff,#f9fafb)' };
+            }
+            if (tile.type === 'TAX') {
+                return { background: 'linear-gradient(180deg,#fee2e2,#fef2f2)' };
+            }
+            if (['GO','JAIL','FREE_PARKING','GOTO_JAIL'].includes(tile.type)) {
+                return { background: 'linear-gradient(180deg,#e5e7eb,#f9fafb)' };
+            }
+            return {};
+        };
+
+        // 判斷目前玩家所在格
+        const isCurrentTile = (index) => {
             if (state.status !== 'PLAYING') return false;
             const curId = state.order[state.turnIndex];
             const p = state.players[curId];
             if (!p) return false;
-            return p.pos === i;
+            return p.pos === index;
         };
 
         // 地產卡片彈窗
@@ -1257,33 +1200,21 @@ const app = createApp({
             });
         };
 
-        const rematch = () => {
-            socket.emit('rematch');
-        };
-
-        const leaveRoom = () => {
-            socket.emit('leaveRoom');
-        };
-
         return {
             state, loading,
             nickname, roomId, joined, isHost, myId,
             logs, animating, scale,
             buildTarget, die1, die2, die1Val, die2Val,
             liquidation,
-            roomList,
             join, start, rollDice, buildHouse,
             sellProperty, declareBankruptcy,
-            rematch, leaveRoom,
             isMyTurn, currPlayerName, myUpgradable,
             isMyLiquidating, ranking,
             totalAssetMap, turnText,
             getGridStyle, getPosClass, getColor, getOwnerColor,
-            showTileCard, showPip,
+            showTileCard, showPip, getTileStyle,
             isCorner: i => i % 10 === 0,
-            isCurrentTile,
-            refreshRooms,
-            roomStatusText
+            isCurrentTile
         };
     }
 });
