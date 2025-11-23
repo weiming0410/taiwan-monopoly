@@ -1,0 +1,1149 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monopoly Taiwan - Ultimate Edition</title>
+    
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        :root { --bg: #1c2541; --board-bg: #ecf0f1; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            margin: 0;
+            font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+            background: radial-gradient(circle at top left, #304ffe 0, #141e30 40%, #0f172a 100%);
+            height: 100vh;
+            color: white;
+            overflow: hidden;
+        }
+        #app { width: 100%; height: 100%; }
+
+        .loading-mask {
+            position: fixed; inset: 0;
+            display:flex; align-items:center; justify-content:center;
+            background: rgba(0,0,0,0.7); color:white; font-size:1.4em; z-index:999;
+        }
+
+        .game-container {
+            width: 100%; height: 100%;
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: minmax(750px, 1fr) 330px;
+            gap: 16px;
+            padding: 12px 16px;
+        }
+        .board-wrap { display:flex; align-items:center; justify-content:center; }
+
+        .board {
+            width: 900px;
+            height: 900px;
+            background: radial-gradient(circle at center, #ffffff 0, #f7f8fb 45%, #e3e7f1 100%);
+            border-radius: 26px;
+            box-shadow: 0 18px 40px rgba(0,0,0,0.55), 0 0 0 3px rgba(255,255,255,0.08);
+            display: grid;
+            /* 外圈 row/column 比中間大：棋格更厚，中間縮小 */
+            grid-template-columns: 1.4fr repeat(9, 0.7fr) 1.4fr;
+            grid-template-rows: 1.4fr repeat(9, 0.7fr) 1.4fr;
+            position: relative;
+            color:#2c3e50;
+            overflow: hidden;
+        }
+
+        .board::before {
+            content:"";
+            position:absolute;
+            inset:14px;
+            border-radius:22px;
+            border:1px solid rgba(0,0,0,0.04);
+            box-shadow: inset 0 0 30px rgba(0,0,0,0.06);
+            pointer-events:none;
+        }
+
+        .ui-panel {
+            height: 100%;
+            background: linear-gradient(150deg, rgba(13,27,65,0.92), rgba(6,12,30,0.98));
+            border-radius: 20px;
+            padding: 14px 14px 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            box-shadow: 0 16px 35px rgba(0,0,0,0.7);
+            border:1px solid rgba(255,255,255,0.06);
+            backdrop-filter: blur(18px);
+        }
+
+        .panel-header {
+            padding: 6px 10px 10px;
+            border-radius: 14px;
+            background: radial-gradient(circle at top left, rgba(129,140,248,0.45), rgba(15,23,42,0.95));
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+            margin-bottom:4px;
+        }
+        .panel-header-left {
+            display:flex;
+            flex-direction:column;
+            gap:2px;
+        }
+        .panel-title {
+            font-size:14px;
+            font-weight:700;
+            letter-spacing:0.02em;
+        }
+        .panel-sub {
+            font-size:11px;
+            opacity:0.85;
+        }
+        .panel-badge {
+            font-size:11px;
+            padding:4px 10px;
+            border-radius:999px;
+            background:rgba(15,23,42,0.8);
+            border:1px solid rgba(148,163,184,0.7);
+            display:flex;
+            align-items:center;
+            gap:6px;
+        }
+
+        .player-card {
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            padding:8px 10px;
+            border-radius:10px;
+            background:rgba(15,23,42,0.9);
+            border-left:5px solid transparent;
+            margin-bottom:6px;
+            font-size:12px;
+            box-shadow:0 0 0 1px rgba(148,163,184,0.15);
+        }
+        .player-card.active {
+            background:linear-gradient(145deg, rgba(253,224,71,0.15), rgba(15,23,42,0.95));
+            box-shadow:0 0 12px rgba(253,224,71,0.8);
+        }
+        .player-sub {
+            font-size:11px;
+            opacity:0.85;
+        }
+
+        .control-box {
+            margin-top:2px;
+            padding:10px;
+            background:rgba(15,23,42,0.9);
+            border-radius:14px;
+            min-height:160px;
+            box-shadow:0 0 0 1px rgba(148,163,184,0.15);
+        }
+
+        .btn-action {
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            gap:6px;
+            padding:10px 16px;
+            border-radius:999px;
+            border:none;
+            cursor:pointer;
+            background:#3498db;
+            color:white;
+            font-weight:bold;
+            font-size:0.95em;
+            box-shadow:0 4px 12px rgba(52,152,219,0.6);
+            transition: all 0.15s ease;
+        }
+        .btn-roll { background: #f97316; box-shadow:0 4px 14px rgba(248,115,22,0.75); }
+        .btn-build { background: #22c55e; box-shadow:0 4px 14px rgba(34,197,94,0.75); }
+        .btn-action:active { transform: translateY(2px) scale(.98); box-shadow: none; }
+        .btn-action:disabled { background: #64748b; cursor: not-allowed; box-shadow: none; }
+
+        .float-text {
+            position: absolute;
+            font-weight: 900;
+            font-size: 1.2em;
+            pointer-events: none;
+            z-index: 100;
+            text-shadow: 0 0 3px rgba(255,255,255,0.9);
+        }
+
+        .lobby {
+            position: fixed; inset:0;
+            background: rgba(15,23,42,0.88);
+            display:flex; justify-content:center; align-items:center;
+            z-index:900;
+        }
+        .lobby-box {
+            background: radial-gradient(circle at top, #ffffff 0, #e5e7eb 45%, #cbd5f5 100%);
+            padding: 40px 38px 34px;
+            border-radius: 24px;
+            width: 420px;
+            text-align: center;
+            color: #111827;
+            box-shadow: 0 24px 45px rgba(15,23,42,0.85);
+        }
+        .lobby input {
+            width: 82%; padding: 10px; margin: 8px auto;
+            font-size: 1.05em; border: 1px solid #d1d5db; border-radius: 8px;
+        }
+
+        .dice-stage { 
+            grid-column: 2/11; grid-row: 2/11;
+            display:flex; flex-direction:column; align-items:center; justify-content:center;
+            pointer-events:none;
+        }
+        .dice-title {
+            font-size:3.6em;
+            opacity:0.07;
+            margin-bottom:8px;
+            letter-spacing:0.22em;
+        }
+        .dice-container { display:flex; gap:18px; pointer-events:auto; margin-bottom:6px; }
+        .die {
+            width:64px; height:64px;
+            background:#f9fafb;
+            border-radius:14px;
+            border:2px solid #cbd5e1;
+            position:relative;
+            box-shadow:0 6px 14px rgba(15,23,42,0.5);
+        }
+        .pip {
+            width:10px; height:10px;
+            background:#020617;
+            border-radius:50%;
+            position:absolute;
+        }
+        .p1 { top:10px; left:10px; }
+        .p2 { top:27px; left:10px; }
+        .p3 { bottom:10px; left:10px; }
+        .p4 { top:27px; left:27px; }   /* 中間 */
+        .p5 { top:10px; right:10px; }
+        .p6 { top:27px; right:10px; }
+        .p7 { bottom:10px; right:10px; }
+        .dice-sum {
+            font-size:13px;
+            color:#4b5563;
+        }
+
+        .tile {
+            border: 1px solid #cbd5e1;
+            position: relative;
+            background: #ffffff;
+            display:flex;
+            flex-direction:column;
+            justify-content:space-between;
+            overflow:hidden;
+            cursor:pointer;
+            transition: box-shadow .12s ease, transform .12s ease;
+        }
+        .tile:hover {
+            box-shadow:0 0 10px rgba(37,99,235,0.6);
+            transform: translateY(-1px);
+            z-index:5;
+        }
+        .tile-header { height: 22px; }
+        .tile-body {
+            flex:1;
+            font-size: 11.5px;
+            padding: 4px 3px;
+            text-align:center;
+            display:flex;
+            flex-direction:column;
+            justify-content:center;
+            align-items:center;
+            color:#020617;
+        }
+        .tile-price { font-weight:bold; margin-top:1px; font-size:11.5px; }
+
+        .corner {
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            font-size: 12px;
+            text-align:center;
+            padding: 4px;
+            font-weight:bold;
+        }
+
+        .bottom, .top { writing-mode: horizontal-tb; }
+        .left, .right { writing-mode: vertical-rl; }
+
+        .house-icon, .hotel-icon {
+            position:absolute;
+            bottom:2px;
+            left:2px;
+            color:#22c55e;
+            font-size:11px;
+        }
+        .hotel-icon { color:#e11d48; }
+
+        .token {
+            width: 22px; height: 22px;
+            border-radius: 50%;
+            position:absolute;
+            z-index:50;
+            border:2px solid rgba(255,255,255,0.95);
+            box-shadow:0 0 5px rgba(0,0,0,0.7);
+        }
+
+        /* 地產卡片彈窗 */
+        .prop-card {
+            text-align:left;
+            background:#f9fafb;
+            border-radius:18px;
+            overflow:hidden;
+            box-shadow:0 14px 30px rgba(0,0,0,0.25);
+        }
+        .prop-card-header {
+            padding:10px 14px;
+            color:#fff;
+            font-weight:bold;
+            display:flex;
+            justify-content:space-between;
+            align-items:center;
+        }
+        .prop-card-body {
+            padding:10px 14px;
+            font-size:13px;
+            color:#111827;
+        }
+        .prop-rent-table {
+            width:100%;
+            border-collapse:collapse;
+            font-size:12px;
+            margin-top:6px;
+        }
+        .prop-rent-table td {
+            padding:2px 4px;
+        }
+
+        /* 機會 / 命運卡片動畫樣式 */
+        .card-anim {
+            background:#f9fafb;
+            border-radius:18px;
+            padding:16px 14px 14px;
+            box-shadow:0 14px 30px rgba(0,0,0,0.28);
+            text-align:left;
+            position:relative;
+        }
+        .card-anim-tag {
+            font-size:11px;
+            font-weight:bold;
+            padding:2px 8px;
+            border-radius:20px;
+            display:inline-flex;
+            align-items:center;
+            gap:4px;
+        }
+        .card-anim-title {
+            font-size:18px;
+            margin:8px 0 4px;
+            font-weight:700;
+        }
+        .card-anim-text {
+            font-size:13px;
+            margin-bottom:8px;
+        }
+        .card-anim-amount {
+            font-size:16px;
+            font-weight:700;
+        }
+
+        @media (max-width: 1200px) {
+            .game-container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto 280px;
+                max-width:none;
+                padding:8px;
+            }
+            .ui-panel { order:-1; }
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="loading-mask" v-if="loading">
+        <i class="fa-solid fa-spinner fa-spin"></i> &nbsp; 載入遊戲資源...
+    </div>
+
+    <!-- LOBBY -->
+    <div class="lobby" v-if="!loading && state.status === 'LOBBY'">
+        <div class="lobby-box">
+            <h1 style="color:#111827; margin-bottom:10px;">
+                <i class="fa-solid fa-dice"></i> 台灣大富翁
+            </h1>
+            <p style="font-size:13px; color:#4b5563; margin-bottom:14px;">
+                建立房間或輸入房號，邀請朋友一起連線對戰。
+            </p>
+            <div v-if="!joined">
+                <input v-model="nickname" placeholder="請輸入暱稱 (Enter)" @keyup.enter="join">
+                <input v-model="roomId" placeholder="請輸入房號 (例如 ROOM1)" @keyup.enter="join">
+                <p style="font-size:11px;color:#6b7280;margin-bottom:10px">
+                    相同房號的玩家會進入同一局；輸入新的房號即可建立新房間。
+                </p>
+                <button class="btn-action btn-roll" @click="join">加入 / 建立房間</button>
+            </div>
+            <div v-else>
+                <h3 style="margin-bottom:8px;">等待玩家 ({{ Object.keys(state.players).length }}/4)</h3>
+                <div v-for="p in state.players" :key="p.id" :style="{color: p.color, margin:'5px'}">
+                    <i class="fa-solid fa-user"></i> {{ p.name }}
+                </div>
+                <br>
+                <button class="btn-action btn-build" v-if="isHost && Object.keys(state.players).length >= 2" @click="start">
+                    <i class="fa-solid fa-play"></i> 開始遊戲
+                </button>
+                <p v-else style="font-size:12px;color:#4b5563;">等待房主開始...</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- PLAYING / ENDED 畫面 -->
+    <div v-if="!loading && (state.status === 'PLAYING' || state.status === 'ENDED')" 
+         class="game-container"
+         :style="{transform: `scale(${scale})`}">
+
+        <!-- 棋盤 -->
+        <div class="board-wrap">
+            <div class="board" id="board">
+                <div v-for="(t, i) in state.map" :key="t.id"
+                     :class="['tile', getPosClass(i)]"
+                     :style="getGridStyle(i)"
+                     :id="'tile-'+i"
+                     @click="showTileCard(t)">
+                    <template v-if="!isCorner(i)">
+                        <div class="tile-header" :style="{background: getColor(t.group)}"></div>
+                        <div class="tile-body">
+                            <span>{{ t.name }}</span>
+                            <span class="tile-price" v-if="t.price">${{ t.price }}</span>
+                        </div>
+                        <div v-if="t.level > 0" :class="t.level===5?'hotel-icon':'house-icon'">
+                            <i :class="t.level===5?'fa-solid fa-hotel':'fa-solid fa-house'" v-for="n in (t.level===5?1:t.level)"></i>
+                        </div>
+                        <div v-if="t.owner"
+                             :style="{position:'absolute', right:'3px', bottom:'3px', width:'10px', height:'10px', borderRadius:'50%', background: getOwnerColor(t.owner)}">
+                        </div>
+                    </template>
+                    <div v-else class="corner">
+                        <template v-if="t.type==='GO'">
+                            <i class="fa-solid fa-flag-checkered"></i>&nbsp;起點
+                        </template>
+                        <template v-else-if="t.type==='JAIL'">
+                            <i class="fa-solid fa-bars"></i>&nbsp;監獄
+                        </template>
+                        <template v-else-if="t.type==='FREE_PARKING'">
+                            <i class="fa-solid fa-car"></i>&nbsp;停車場
+                        </template>
+                        <template v-else-if="t.type==='GOTO_JAIL'">
+                            <i class="fa-solid fa-arrow-right"></i>&nbsp;前進監獄
+                        </template>
+                        <template v-else>
+                            {{ t.name }}
+                        </template>
+                    </div>
+                </div>
+
+                <div class="dice-stage">
+                    <div class="dice-title">TAIWAN</div>
+                    <div class="dice-container">
+                        <div class="die" ref="die1">
+                            <div v-for="n in 7" :key="'d1-'+n" class="pip" :class="'p'+n" v-show="showPip(die1Val, n)"></div>
+                        </div>
+                        <div class="die" ref="die2">
+                            <div v-for="n in 7" :key="'d2-'+n" class="pip" :class="'p'+n" v-show="showPip(die2Val, n)"></div>
+                        </div>
+                    </div>
+                    <div class="dice-sum">
+                        點數：{{ die1Val + die2Val }}
+                    </div>
+
+                    <!-- 棋子 -->
+                    <div v-for="p in state.players" :key="p.id"
+                         class="token"
+                         :id="'token-' + p.id"
+                         :style="{ background: p.color }"></div>
+                </div>
+
+                <!-- 遊戲結束浮層 -->
+                <div v-if="state.status === 'ENDED'"
+                     style="position:absolute; inset:0; background:rgba(15,23,42,0.45); display:flex; align-items:center; justify-content:center; z-index:200;">
+                    <div style="background:white; color:#111827; padding:30px 40px; border-radius:22px; text-align:center; min-width:280px; box-shadow:0 18px 40px rgba(15,23,42,0.7);">
+                        <h2 style="margin-bottom:10px;">遊戲結束</h2>
+                        <p v-if="state.winnerId">
+                            贏家是 <strong>{{ state.players[state.winnerId].name }}</strong>！
+                        </p>
+                        <p v-else>所有玩家皆破產。</p>
+                        <hr style="margin:10px 0;">
+                        <div style="text-align:left; font-size:13px; max-height:220px; overflow:auto;">
+                            <div style="font-weight:bold; margin-bottom:4px;">資產排行（現金 + 地產成本）</div>
+                            <ol>
+                                <li v-for="p in ranking" :key="p.id">
+                                    {{ p.name }} - 總資產 ${{ p.totalAsset }}（現金 ${{ p.money }}）
+                                    <span v-if="p.bankrupt">（破產）</span>
+                                </li>
+                            </ol>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右側 UI -->
+        <div class="ui-panel">
+            <div class="panel-header">
+                <div class="panel-header-left">
+                    <div class="panel-title">
+                        房間 {{ roomId }}
+                    </div>
+                    <div class="panel-sub">
+                        {{ turnText }}
+                    </div>
+                </div>
+                <div class="panel-badge">
+                    <i class="fa-solid fa-users"></i>
+                    {{ Object.keys(state.players).length }}/4
+                </div>
+            </div>
+
+            <div v-for="pid in state.order" :key="pid"
+                 class="player-card"
+                 :class="{active: state.order[state.turnIndex] === pid && state.status === 'PLAYING'}"
+                 :style="{borderLeftColor: state.players[pid].color}">
+                <div>
+                    <strong>{{ state.players[pid].name }}</strong>
+                    <div class="player-sub">
+                        地產: {{ state.players[pid].properties.length }}
+                    </div>
+                    <div class="player-sub">
+                        總資產: ${{ totalAssetMap[pid] || state.players[pid].money }}
+                    </div>
+                </div>
+                <div style="font-weight:bold; color:#fde047">${{ state.players[pid].money }}</div>
+            </div>
+
+            <div class="control-box">
+                <!-- 變賣資產 UI -->
+                <div v-if="isMyLiquidating">
+                    <div style="font-weight:bold; margin-bottom:6px;">資金不足，請變賣資產或宣告破產</div>
+                    <div style="font-size:12px; margin-bottom:6px;">
+                        目前負債：<span style="color:#f97316;">${{ liquidation.deficit }}</span>
+                    </div>
+                    <div style="max-height:130px; overflow:auto; background:rgba(15,23,42,0.9); padding:4px; border-radius:8px;">
+                        <div v-if="liquidation.properties.length === 0" style="font-size:12px;">已無可變賣資產</div>
+                        <div v-for="prop in liquidation.properties" :key="prop.id"
+                             style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; font-size:12px;">
+                            <div>
+                                <div>{{ prop.name }}</div>
+                                <div style="opacity:.8;">可售價：約 ${{ prop.sellValue }}</div>
+                            </div>
+                            <button class="btn-action btn-build"
+                                    style="padding:4px 10px; font-size:12px;"
+                                    @click="sellProperty(prop.id)">
+                                出售
+                            </button>
+                        </div>
+                    </div>
+                    <button class="btn-action btn-roll" style="margin-top:8px;" @click="declareBankruptcy">
+                        宣告破產
+                    </button>
+                </div>
+
+                <!-- 一般行動 UI -->
+                <div v-else-if="isMyTurn && !animating && state.status === 'PLAYING'">
+                    <button class="btn-action btn-roll" @click="rollDice">
+                        <i class="fa-solid fa-dice"></i> 擲骰子
+                    </button>
+
+                    <div style="margin-top:18px; border-top:1px solid rgba(148,163,184,0.4); padding-top:10px;">
+                        <select v-model="buildTarget" style="width:100%; padding:8px; margin-bottom:6px; border-radius:8px; border:1px solid #64748b; background:#020617; color:white; font-size:12px;">
+                            <option :value="null">-- 選擇升級地產 --</option>
+                            <option v-for="t in myUpgradable" :value="t.id">{{ t.name }} (${{ t.house }})</option>
+                        </select>
+                        <button class="btn-action btn-build" :disabled="!buildTarget" @click="buildHouse">
+                            建造房屋
+                        </button>
+                    </div>
+                </div>
+
+                <div v-else style="color:#9ca3af; font-weight:bold; font-size:12px;">
+                    {{ animating ? '動畫執行中...' : `等待 ${currPlayerName} 行動...` }}
+                </div>
+            </div>
+
+            <!-- 行動紀錄 -->
+            <div style="margin-top:12px; max-height:260px; overflow:auto; background:#0f172a; border-radius:10px; padding:8px; font-size:12px; color:#e5e7eb; box-shadow:0 0 0 1px rgba(148,163,184,0.25);">
+                <div style="font-weight:bold; margin-bottom:6px; display:flex; align-items:center; gap:6px;">
+                    <i class="fa-solid fa-scroll"></i> 行動紀錄
+                </div>
+                <div v-if="logs.length === 0" style="color:#6b7280;">目前沒有紀錄</div>
+                <div v-for="log in logs" :key="log.id" style="margin-bottom:4px;">
+                    <span style="opacity:0.6; margin-right:6px;">{{ log.time }}</span>
+                    <span>{{ log.text }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+const { createApp, ref, reactive, computed, onMounted, nextTick } = Vue;
+
+const app = createApp({
+    setup() {
+        const socket = io();
+        const loading = ref(true);
+        const state = reactive({
+            players: {},
+            map: [],
+            order: [],
+            turnIndex: 0,
+            status: 'LOBBY',
+            hostId: null,
+            winnerId: null
+        });
+
+        const nickname = ref('');
+        const roomId = ref(localStorage.getItem('mono_room') || 'ROOM1');
+        const joined = ref(false);
+        const isHost = ref(false);
+        const myId = ref('');
+        const playerToken = ref('');
+        const logs = ref([]);
+
+        const animating = ref(false);
+        const buildTarget = ref(null);
+        const scale = ref(1);
+
+        const die1 = ref(null);
+        const die2 = ref(null);
+        const die1Val = ref(1);
+        const die2Val = ref(1);
+
+        const liquidation = reactive({
+            active: false,
+            playerId: '',
+            deficit: 0,
+            properties: []
+        });
+
+        const gridMap = [
+            [11,11], [11,10], [11,9], [11,8], [11,7], [11,6], [11,5], [11,4], [11,3], [11,2], [11,1],
+            [10,1], [9,1], [8,1], [7,1], [6,1], [5,1], [4,1], [3,1], [2,1],
+            [1,1], [1,2], [1,3], [1,4], [1,5], [1,6], [1,7], [1,8], [1,9], [1,10], [1,11],
+            [2,11], [3,11], [4,11], [5,11], [6,11], [7,11], [8,11], [9,11], [10,11]
+        ];
+
+        const isMyTurn = computed(() =>
+            state.status === 'PLAYING' && state.order[state.turnIndex] === myId.value
+        );
+        const currPlayerName = computed(() =>
+            state.players[state.order[state.turnIndex]]?.name || '...'
+        );
+        const myUpgradable = computed(() =>
+            state.map.filter(t => t.owner === myId.value && t.type === 'PROP' && t.level < 5)
+        );
+        const isMyLiquidating = computed(() =>
+            liquidation.active && liquidation.playerId === myId.value
+        );
+
+        const turnText = computed(() => {
+            if (state.status === 'LOBBY') return '等待房主開始遊戲';
+            if (state.status === 'ENDED') {
+                if (state.winnerId && state.players[state.winnerId]) {
+                    return `遊戲結束，贏家：${state.players[state.winnerId].name}`;
+                }
+                return '遊戲已結束';
+            }
+            const curId = state.order[state.turnIndex];
+            const p = state.players[curId];
+            if (!p) return '等待玩家加入';
+            return `輪到 ${p.name} 的回合`;
+        });
+
+        // 資產總價（現金 + 地產成本）
+        const totalAssetMap = computed(() => {
+            const res = {};
+            const tiles = state.map || [];
+            for (const pid in state.players) {
+                let propsValue = 0;
+                tiles.forEach(t => {
+                    if (t.owner === pid) {
+                        const base = t.price || 0;
+                        const level = t.level || 0;
+                        const houseCost = t.house || 0;
+                        propsValue += base + level * houseCost;
+                    }
+                });
+                const money = state.players[pid].money || 0;
+                res[pid] = money + propsValue;
+            }
+            return res;
+        });
+
+        const ranking = computed(() => {
+            const arr = Object.values(state.players || {});
+            return [...arr].map(p => ({
+                ...p,
+                totalAsset: totalAssetMap.value[p.id] || p.money || 0
+            })).sort((a,b) => b.totalAsset - a.totalAsset);
+        });
+
+        const appendLog = (text) => {
+            const now = new Date();
+            logs.value.unshift({
+                id: now.getTime() + '-' + Math.random().toString(36).slice(2, 6),
+                time: now.toLocaleTimeString(),
+                text
+            });
+            if (logs.value.length > 80) logs.value.pop();
+        };
+
+        const handleResize = () => {
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+
+            const scaleW = (w - 380) / 900;
+            const scaleH = (h - 60) / 920;
+            scale.value = Math.min(1, scaleW, scaleH, 1.05);
+            if (scale.value <= 0) scale.value = 0.75;
+        };
+
+        onMounted(() => {
+            loading.value = false;
+            window.addEventListener('resize', handleResize);
+            handleResize();
+
+            let token = localStorage.getItem('mono_player');
+            if (!token) {
+                token = 'P' + Math.random().toString(36).slice(2, 10);
+                localStorage.setItem('mono_player', token);
+            }
+            playerToken.value = token;
+            setInterval(syncTokens, 500);
+        });
+
+        // Socket 事件
+        socket.on('stateUpdate', (s) => {
+            if (!animating.value) Object.assign(state, s);
+        });
+
+        socket.on('joinSuccess', (d) => {
+            joined.value = true;
+            isHost.value = d.isHost;
+            myId.value = d.playerId;
+            roomId.value = d.roomId;
+            localStorage.setItem('mono_room', d.roomId);
+        });
+
+        socket.on('joinFailed', ({ reason }) => {
+            Swal.fire({ icon: 'error', title: '無法加入房間', text: reason });
+        });
+
+        socket.on('rollResult', async (res) => {
+            animating.value = true;
+
+            await playDiceAnim(res.dice);
+            await moveToken(res.playerId, res.path);
+
+            if (res.moneyChange && res.moneyChange !== 0) {
+                const color = res.moneyChange > 0 ? '#22c55e' : '#ef4444';
+                const txt = (res.moneyChange > 0 ? '+' : '') + '$' + res.moneyChange;
+                const endPos = res.path[res.path.length - 1];
+                showFloatText(txt, color, endPos);
+            }
+
+            if (res.playerId === myId.value && state.status === 'PLAYING') {
+                if (res.event.type === 'BUY_PROMPT') {
+                    const tile = state.map[res.event.tileId] || {};
+                    const tName = res.event.tileName || tile.name || `地產 #${res.event.tileId}`;
+                    const tPrice = res.event.price || tile.price || 0;
+
+                    const { isConfirmed } = await Swal.fire({
+                        title: tName,
+                        text: `價格: $${tPrice}`,
+                        icon: 'question',
+                        showCancelButton: true,
+                        confirmButtonText: '購買',
+                        cancelButtonText: '放棄',
+                        confirmButtonColor: '#22c55e'
+                    });
+                    socket.emit('buy', isConfirmed);
+                } else if (res.event.type === 'CARD') {
+                    await showCardAnimation(res.event);
+                    socket.emit('endTurn');
+                } else {
+                    let msg = '';
+                    if (res.event.type === 'PAY_RENT') {
+                        msg = `支付租金 $${res.event.amount}`;
+                    } else if (res.event.type === 'TAX') {
+                        msg = `繳納稅金 $${res.event.amount}`;
+                    } else if (res.event.type === 'JAIL') {
+                        msg = '前往監獄';
+                    }
+
+                    if (msg) {
+                        appendLog(msg);
+                        await Swal.fire({
+                            toast: true,
+                            position: 'top',
+                            icon: 'info',
+                            title: msg,
+                            timer: 2000,
+                            showConfirmButton: false
+                        });
+                    }
+
+                    socket.emit('endTurn');
+                }
+            }
+
+            Object.assign(state, res.newState);
+            animating.value = false;
+            nextTick(syncTokens);
+        });
+
+        socket.on('globalMsg', (msg) => {
+            appendLog(msg);
+            Swal.fire({
+                toast: true,
+                position: 'bottom-start',
+                title: msg,
+                timer: 2500,
+                icon: 'info',
+                showConfirmButton: false
+            });
+        });
+
+        socket.on('effect', ({ type, tileId }) => {
+            if (type === 'BUILD') {
+                const el = document.querySelector(`#tile-${tileId} .house-icon, #tile-${tileId} .hotel-icon`);
+                if (el) gsap.from(el, { scale: 0, duration: 0.5, ease: "back.out(1.7)" });
+            }
+        });
+
+        // 變賣流程
+        socket.on('liquidationRequired', (data) => {
+            liquidation.active = true;
+            liquidation.playerId = data.playerId;
+            liquidation.deficit = data.deficit;
+            liquidation.properties = data.properties;
+            if (data.playerId === myId.value) {
+                appendLog(`你資金不足，需變賣資產 (負債 $${data.deficit})`);
+            }
+        });
+
+        socket.on('liquidationUpdate', (data) => {
+            liquidation.deficit = data.deficit;
+            liquidation.properties = data.properties;
+        });
+
+        socket.on('liquidationResolved', () => {
+            liquidation.active = false;
+            liquidation.playerId = '';
+            liquidation.deficit = 0;
+            liquidation.properties = [];
+        });
+
+        // 擲骰子動畫（雙骰子＋點數顯示）
+        const pipMap = {
+            1:[4],
+            2:[1,7],
+            3:[1,4,7],
+            4:[1,3,5,7],
+            5:[1,3,4,5,7],
+            6:[1,2,3,5,6,7]
+        };
+        const showPip = (value, idx) => {
+            const arr = pipMap[value] || [];
+            return arr.includes(idx);
+        };
+
+        const playDiceAnim = (dice) => new Promise(resolve => {
+            const d1El = die1.value;
+            const d2El = die2.value;
+            if (!d1El || !d2El) {
+                die1Val.value = dice[0];
+                die2Val.value = dice[1];
+                resolve();
+                return;
+            }
+            let count = 0;
+            const shuffle = setInterval(() => {
+                die1Val.value = 1 + Math.floor(Math.random()*6);
+                die2Val.value = 1 + Math.floor(Math.random()*6);
+                count++;
+                if (count > 8) {
+                    clearInterval(shuffle);
+                    die1Val.value = dice[0];
+                    die2Val.value = dice[1];
+                    gsap.fromTo(
+                        [d1El, d2El],
+                        { rotation: 0, y:0, scale:1 },
+                        {
+                            rotation: 360,
+                            y: -18,
+                            scale:1.06,
+                            duration: 0.55,
+                            ease: "back.out(1.7)",
+                            onComplete: resolve
+                        }
+                    );
+                }
+            }, 70);
+        });
+
+        const moveToken = (playerId, path) => new Promise(async (resolve) => {
+            for (const pos of path) {
+                const token = document.getElementById('token-' + playerId);
+                const tile = document.getElementById('tile-' + pos);
+                const board = document.getElementById('board');
+                if (!token || !tile || !board) continue;
+                const tRect = tile.getBoundingClientRect();
+                const bRect = board.getBoundingClientRect();
+
+                const targetX = tRect.left - bRect.left + tRect.width / 2 - 11;
+                const targetY = tRect.top - bRect.top + tRect.height / 2 - 11;
+
+                await gsap.to(token, {
+                    left: targetX,
+                    top: targetY,
+                    duration: 0.2,
+                    ease: "power1.inOut"
+                });
+            }
+            resolve();
+        });
+
+        const showFloatText = (text, color, tileIndex) => {
+            const tile = document.getElementById('tile-' + tileIndex);
+            const board = document.getElementById('board');
+            if (!tile || !board) return;
+            const tRect = tile.getBoundingClientRect();
+            const bRect = board.getBoundingClientRect();
+
+            const el = document.createElement('div');
+            el.className = 'float-text';
+            el.innerText = text;
+            el.style.color = color;
+            el.style.left = (tRect.left - bRect.left + 10) + 'px';
+            el.style.top = (tRect.top - bRect.top) + 'px';
+
+            board.appendChild(el);
+            gsap.to(el, { y: -50, opacity: 0, duration: 1.5, onComplete: () => el.remove() });
+        };
+
+        const syncTokens = () => {
+            if (animating.value) return;
+            const board = document.getElementById('board');
+            if (!board) return;
+
+            const groups = {};
+            for (const pid in state.players) {
+                const p = state.players[pid];
+                if (!groups[p.pos]) groups[p.pos] = [];
+                groups[p.pos].push(pid);
+            }
+
+            for (const pos in groups) {
+                const tile = document.getElementById('tile-' + pos);
+                if (!tile) continue;
+                const tRect = tile.getBoundingClientRect();
+                const pids = groups[pos];
+
+                pids.forEach((pid, idx) => {
+                    const token = document.getElementById('token-' + pid);
+                    if (!token) return;
+                    const offsetX = (idx % 2) * 16 - 8;
+                    const offsetY = (idx >= 2 ? 1 : 0) * 16 - 8;
+                    token.style.left =
+                        (tRect.left - board.getBoundingClientRect().left + tRect.width / 2 - 11 + offsetX) + 'px';
+                    token.style.top =
+                        (tRect.top - board.getBoundingClientRect().top + tRect.height / 2 - 11 + offsetY) + 'px';
+                });
+            }
+        };
+
+        // 顯示用 helpers
+        const getGridStyle = i => ({ gridRow: gridMap[i][0], gridColumn: gridMap[i][1] });
+        const getPosClass = i => {
+            if (i % 10 === 0) return '';
+            if (i < 10) return 'bottom';
+            if (i < 20) return 'left';
+            if (i < 30) return 'top';
+            return 'right';
+        };
+        const getColor = g => ({
+            Brown: '#7b341e',
+            LightBlue: '#0ea5e9',
+            Pink: '#db2777',
+            Orange: '#f97316',
+            Red: '#ef4444',
+            Yellow: '#facc15',
+            Green: '#22c55e',
+            DarkBlue: '#1d4ed8'
+        }[g] || '#e5e7eb');
+        const getOwnerColor = oid => state.players[oid]?.color || 'transparent';
+        const getOwnerName = oid => state.players[oid]?.name || '無';
+
+        // 地產卡片彈窗
+        const showTileCard = (tile) => {
+            if (!tile) return;
+            const typeText = tile.type || '';
+            const color = getColor(tile.group);
+            const ownerName = tile.owner ? getOwnerName(tile.owner) : '銀行';
+            const price = tile.price || 0;
+            const level = tile.level || 0;
+            const houseCost = tile.house || 0;
+            const isProp = tile.type === 'PROP';
+            const rents = tile.rents || [];
+
+            let html = `<div class="prop-card">
+                <div class="prop-card-header" style="background:${color};">
+                    <span>${tile.name}</span>
+                    <small>${typeText}</small>
+                </div>
+                <div class="prop-card-body">
+                    <div>擁有者：<strong>${ownerName}</strong></div>
+                    ${price ? `<div>購買價格：$${price}</div>` : ``}
+                    ${houseCost ? `<div>房屋成本：$${houseCost}</div>` : ``}
+                    ${isProp ? `<div>目前建築：${level === 0 ? '無' : (level < 5 ? level + ' 棟房屋' : '飯店')}</div>` : ''}
+            `;
+
+            if (isProp && rents.length) {
+                html += `<table class="prop-rent-table">
+                    <tr><td>空地租金</td><td>$${rents[0] || 0}</td></tr>
+                    <tr><td>1 棟房屋</td><td>$${rents[1] || 0}</td></tr>
+                    <tr><td>2 棟房屋</td><td>$${rents[2] || 0}</td></tr>
+                    <tr><td>3 棟房屋</td><td>$${rents[3] || 0}</td></tr>
+                    <tr><td>4 棟房屋</td><td>$${rents[4] || 0}</td></tr>
+                    <tr><td>飯店</td><td>$${rents[5] || 0}</td></tr>
+                </table>`;
+            }
+
+            html += `</div></div>`;
+
+            Swal.fire({
+                title: '地產資訊',
+                html,
+                showConfirmButton: true,
+                confirmButtonText: '關閉',
+                width: 420,
+                background: 'transparent',
+                didOpen: (popup) => {
+                    const card = popup.querySelector('.prop-card');
+                    if (card) {
+                        gsap.from(card, { y: 40, opacity: 0, scale:0.9, duration: 0.5, ease: "back.out(1.7)" });
+                    }
+                }
+            });
+        };
+
+        // 機會 / 命運卡動畫
+        const showCardAnimation = (event) => {
+            const amount = event.amount || event.val || 0;
+            const positive = amount >= 0;
+            const sign = positive ? '+' : '';
+            const tagColor = positive ? '#22c55e' : '#ef4444';
+            const tagBg = positive ? 'rgba(34,197,94,0.18)' : 'rgba(239,68,68,0.18)';
+
+            const html = `
+                <div class="card-anim">
+                    <div class="card-anim-tag" style="background:${tagBg}; color:${tagColor};">
+                        <i class="fa-solid ${event.deck === 'CHANCE' ? 'fa-shuffle' : 'fa-star-of-life'}"></i>
+                        ${event.title}
+                    </div>
+                    <div class="card-anim-title">${event.text}</div>
+                    <div class="card-anim-text">
+                        你${positive ? '獲得' : '支付'}金額：
+                    </div>
+                    <div class="card-anim-amount" style="color:${tagColor};">
+                        ${sign}$${Math.abs(amount)}
+                    </div>
+                </div>
+            `;
+
+            return Swal.fire({
+                html,
+                showConfirmButton: true,
+                confirmButtonText: '確定',
+                width: 420,
+                background: 'transparent',
+                didOpen: (popup) => {
+                    const card = popup.querySelector('.card-anim');
+                    if (card) {
+                        gsap.from(card, { y: 60, opacity: 0, scale:0.8, duration: 0.6, ease: "back.out(1.7)" });
+                    }
+                }
+            }).then(() => {
+                appendLog(`${event.title}: ${event.text} (${sign}$${Math.abs(amount)})`);
+            });
+        };
+
+        // actions
+        const join = () => {
+            if (!nickname.value) {
+                Swal.fire({ icon: 'warning', title: '請輸入暱稱' });
+                return;
+            }
+            if (!roomId.value) {
+                Swal.fire({ icon: 'warning', title: '請輸入房號' });
+                return;
+            }
+            socket.emit('joinRoom', {
+                roomId: roomId.value,
+                nickname: nickname.value,
+                playerId: playerToken.value
+            });
+        };
+
+        const start = () => socket.emit('start');
+        const rollDice = () => socket.emit('roll');
+        const buildHouse = () => {
+            if (buildTarget.value) {
+                socket.emit('build', buildTarget.value);
+                buildTarget.value = null;
+            }
+        };
+        const sellProperty = (tileId) => {
+            socket.emit('liquidateProperty', tileId);
+        };
+        const declareBankruptcy = () => {
+            Swal.fire({
+                title: '確定要宣告破產？',
+                text: '所有資產將被收回，你將退出本局遊戲。',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: '確認破產',
+                cancelButtonText: '取消'
+            }).then(r => {
+                if (r.isConfirmed) socket.emit('declareBankruptcy');
+            });
+        };
+
+        return {
+            state, loading,
+            nickname, roomId, joined, isHost, myId,
+            logs, animating, scale,
+            buildTarget, die1, die2, die1Val, die2Val,
+            liquidation,
+            join, start, rollDice, buildHouse,
+            sellProperty, declareBankruptcy,
+            isMyTurn, currPlayerName, myUpgradable,
+            isMyLiquidating, ranking,
+            totalAssetMap, turnText,
+            getGridStyle, getPosClass, getColor, getOwnerColor,
+            showTileCard, showPip,
+            isCorner: i => i % 10 === 0
+        };
+    }
+});
+
+app.mount('#app');
+</script>
+</body>
+</html>
