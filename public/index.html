@@ -42,15 +42,15 @@
         .board-wrap { display:flex; align-items:center; justify-content:center; }
 
         .board {
-            width: 900px;
-            height: 900px;
-            background: radial-gradient(circle at center, #ffffff 0, #f7f8fb 45%, #e3e7f1 100%);
+            width: 960px;
+            height: 960px;
+            background: radial-gradient(circle at center, #ffffff 0, #f7f8fb 40%, #e0e7ff 100%);
             border-radius: 26px;
             box-shadow: 0 18px 40px rgba(0,0,0,0.55), 0 0 0 3px rgba(255,255,255,0.08);
             display: grid;
-            /* 外圈 row/column 比中間大：棋格更厚，中間縮小 */
-            grid-template-columns: 1.4fr repeat(9, 0.7fr) 1.4fr;
-            grid-template-rows: 1.4fr repeat(9, 0.7fr) 1.4fr;
+            /* 外圈 row/column 比中間更厚，中間縮小 */
+            grid-template-columns: 1.6fr repeat(9, 0.6fr) 1.6fr;
+            grid-template-rows: 1.6fr repeat(9, 0.6fr) 1.6fr;
             position: relative;
             color:#2c3e50;
             overflow: hidden;
@@ -87,6 +87,7 @@
             justify-content:space-between;
             align-items:center;
             margin-bottom:4px;
+            gap:8px;
         }
         .panel-header-left {
             display:flex;
@@ -113,6 +114,22 @@
             gap:6px;
         }
 
+        .panel-exit-btn {
+            border:none;
+            border-radius:999px;
+            background:#334155;
+            color:#e5e7eb;
+            padding:5px 10px;
+            font-size:11px;
+            display:inline-flex;
+            align-items:center;
+            gap:4px;
+            cursor:pointer;
+        }
+        .panel-exit-btn:hover {
+            background:#475569;
+        }
+
         .player-card {
             display:flex;
             align-items:center;
@@ -128,6 +145,10 @@
         .player-card.active {
             background:linear-gradient(145deg, rgba(253,224,71,0.15), rgba(15,23,42,0.95));
             box-shadow:0 0 12px rgba(253,224,71,0.8);
+        }
+        .player-card.bankrupt {
+            opacity:0.4;
+            filter:grayscale(0.9);
         }
         .player-sub {
             font-size:11px;
@@ -183,7 +204,7 @@
             background: radial-gradient(circle at top, #ffffff 0, #e5e7eb 45%, #cbd5f5 100%);
             padding: 40px 38px 34px;
             border-radius: 24px;
-            width: 420px;
+            width: 460px;
             text-align: center;
             color: #111827;
             box-shadow: 0 24px 45px rgba(15,23,42,0.85);
@@ -247,10 +268,17 @@
             transform: translateY(-1px);
             z-index:5;
         }
-        .tile-header { height: 22px; }
+        .current-tile {
+            box-shadow: 0 0 0 3px rgba(250,204,21,0.9), 0 0 18px rgba(250,204,21,0.9);
+            position:relative;
+            z-index:6;
+        }
+        .tile-header {
+            height: 24px;
+        }
         .tile-body {
             flex:1;
-            font-size: 11.5px;
+            font-size: 12.5px;
             padding: 4px 3px;
             text-align:center;
             display:flex;
@@ -259,13 +287,13 @@
             align-items:center;
             color:#020617;
         }
-        .tile-price { font-weight:bold; margin-top:1px; font-size:11.5px; }
+        .tile-price { font-weight:bold; margin-top:1px; font-size:12px; }
 
         .corner {
             display:flex;
             align-items:center;
             justify-content:center;
-            font-size: 12px;
+            font-size: 13px;
             text-align:center;
             padding: 4px;
             font-weight:bold;
@@ -381,6 +409,7 @@
             <p style="font-size:13px; color:#4b5563; margin-bottom:14px;">
                 建立房間或輸入房號，邀請朋友一起連線對戰。
             </p>
+
             <div v-if="!joined">
                 <input v-model="nickname" placeholder="請輸入暱稱 (Enter)" @keyup.enter="join">
                 <input v-model="roomId" placeholder="請輸入房號 (例如 ROOM1)" @keyup.enter="join">
@@ -388,17 +417,52 @@
                     相同房號的玩家會進入同一局；輸入新的房號即可建立新房間。
                 </p>
                 <button class="btn-action btn-roll" @click="join">加入 / 建立房間</button>
+
+                <!-- 已開房間列表 -->
+                <div style="margin-top:18px; text-align:left;">
+                    <div style="font-size:12px; color:#374151; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
+                        <span><i class="fa-solid fa-door-open"></i> 已開房間</span>
+                        <button class="btn-action" style="padding:4px 10px; font-size:11px; background:#4b5563; box-shadow:none;" @click="refreshRooms">
+                            刷新
+                        </button>
+                    </div>
+                    <div v-if="roomList.length === 0" style="font-size:12px; color:#6b7280;">
+                        目前沒有可顯示的房間
+                    </div>
+                    <div v-for="r in roomList" :key="r.id"
+                         style="font-size:12px; padding:4px 6px; border-radius:8px; background:#e5e7eb; margin-bottom:4px; display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <div style="font-weight:bold;">{{ r.id }}</div>
+                            <div style="font-size:11px; color:#4b5563;">
+                                玩家：{{ r.playerCount }}/4 · 狀態：{{ roomStatusText(r.status) }}
+                            </div>
+                        </div>
+                        <button class="btn-action btn-roll"
+                                style="padding:4px 8px; font-size:11px;"
+                                @click="roomId = r.id">
+                            使用
+                        </button>
+                    </div>
+                </div>
             </div>
+
+            <!-- 已加入 Lobby -->
             <div v-else>
                 <h3 style="margin-bottom:8px;">等待玩家 ({{ Object.keys(state.players).length }}/4)</h3>
                 <div v-for="p in state.players" :key="p.id" :style="{color: p.color, margin:'5px'}">
                     <i class="fa-solid fa-user"></i> {{ p.name }}
+                    <span v-if="p.id === myId" style="color:#f97316; font-size:11px;">（你）</span>
                 </div>
                 <br>
                 <button class="btn-action btn-build" v-if="isHost && Object.keys(state.players).length >= 2" @click="start">
                     <i class="fa-solid fa-play"></i> 開始遊戲
                 </button>
                 <p v-else style="font-size:12px;color:#4b5563;">等待房主開始...</p>
+                <div style="margin-top:12px;">
+                    <button class="panel-exit-btn" @click="leaveRoom">
+                        <i class="fa-solid fa-right-from-bracket"></i> 離開房間
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -412,7 +476,7 @@
         <div class="board-wrap">
             <div class="board" id="board">
                 <div v-for="(t, i) in state.map" :key="t.id"
-                     :class="['tile', getPosClass(i)]"
+                     :class="['tile', getPosClass(i), isCurrentTile(i) ? 'current-tile' : '']"
                      :style="getGridStyle(i)"
                      :id="'tile-'+i"
                      @click="showTileCard(t)">
@@ -488,6 +552,14 @@
                                 </li>
                             </ol>
                         </div>
+                        <div style="margin-top:14px; display:flex; gap:10px; justify-content:center;">
+                            <button v-if="isHost" class="btn-action btn-build" @click="rematch">
+                                <i class="fa-solid fa-rotate-right"></i> 再來一局
+                            </button>
+                            <button class="btn-action btn-roll" @click="leaveRoom">
+                                <i class="fa-solid fa-right-from-bracket"></i> 離開房間
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -504,18 +576,30 @@
                         {{ turnText }}
                     </div>
                 </div>
-                <div class="panel-badge">
-                    <i class="fa-solid fa-users"></i>
-                    {{ Object.keys(state.players).length }}/4
+                <div style="display:flex; align-items:center; gap:6px;">
+                    <div class="panel-badge">
+                        <i class="fa-solid fa-users"></i>
+                        {{ Object.keys(state.players).length }}/4
+                    </div>
+                    <button class="panel-exit-btn" @click="leaveRoom">
+                        <i class="fa-solid fa-door-open"></i>
+                    </button>
                 </div>
             </div>
 
             <div v-for="pid in state.order" :key="pid"
                  class="player-card"
-                 :class="{active: state.order[state.turnIndex] === pid && state.status === 'PLAYING'}"
+                 :class="{
+                    active: state.order[state.turnIndex] === pid && state.status === 'PLAYING',
+                    bankrupt: state.players[pid].bankrupt
+                 }"
                  :style="{borderLeftColor: state.players[pid].color}">
                 <div>
-                    <strong>{{ state.players[pid].name }}</strong>
+                    <strong>
+                        {{ state.players[pid].name }}
+                        <span v-if="pid === myId" style="color:#f97316; font-size:11px;">（你）</span>
+                        <span v-if="state.players[pid].bankrupt" style="color:#f87171; font-size:11px;">（破產）</span>
+                    </strong>
                     <div class="player-sub">
                         地產: {{ state.players[pid].properties.length }}
                     </div>
@@ -614,6 +698,7 @@ const app = createApp({
         const myId = ref('');
         const playerToken = ref('');
         const logs = ref([]);
+        const roomList = ref([]);
 
         const animating = ref(false);
         const buildTarget = ref(null);
@@ -707,10 +792,21 @@ const app = createApp({
             const w = window.innerWidth;
             const h = window.innerHeight;
 
-            const scaleW = (w - 380) / 900;
-            const scaleH = (h - 60) / 920;
+            const scaleW = (w - 380) / 960;
+            const scaleH = (h - 60) / 980;
             scale.value = Math.min(1, scaleW, scaleH, 1.05);
             if (scale.value <= 0) scale.value = 0.75;
+        };
+
+        const refreshRooms = () => {
+            socket.emit('listRooms');
+        };
+
+        const roomStatusText = (s) => {
+            if (s === 'LOBBY') return '等待中';
+            if (s === 'PLAYING') return '遊戲中';
+            if (s === 'ENDED') return '已結束';
+            return s || '';
         };
 
         onMounted(() => {
@@ -725,11 +821,18 @@ const app = createApp({
             }
             playerToken.value = token;
             setInterval(syncTokens, 500);
+
+            // 一進來先抓一次房間列表
+            refreshRooms();
         });
 
         // Socket 事件
         socket.on('stateUpdate', (s) => {
             if (!animating.value) Object.assign(state, s);
+        });
+
+        socket.on('roomList', (list) => {
+            roomList.value = list || [];
         });
 
         socket.on('joinSuccess', (d) => {
@@ -847,6 +950,27 @@ const app = createApp({
             liquidation.playerId = '';
             liquidation.deficit = 0;
             liquidation.properties = [];
+        });
+
+        // 伺服器通知已離開房間
+        socket.on('leftRoom', () => {
+            joined.value = false;
+            isHost.value = false;
+            myId.value = '';
+            // 重置遊戲狀態
+            state.players = {};
+            state.map = [];
+            state.order = [];
+            state.turnIndex = 0;
+            state.status = 'LOBBY';
+            state.hostId = null;
+            state.winnerId = null;
+            logs.value = [];
+            liquidation.active = false;
+            liquidation.playerId = '';
+            liquidation.deficit = 0;
+            liquidation.properties = [];
+            refreshRooms();
         });
 
         // 擲骰子動畫（雙骰子＋點數顯示）
@@ -990,6 +1114,14 @@ const app = createApp({
         const getOwnerColor = oid => state.players[oid]?.color || 'transparent';
         const getOwnerName = oid => state.players[oid]?.name || '無';
 
+        const isCurrentTile = (i) => {
+            if (state.status !== 'PLAYING') return false;
+            const curId = state.order[state.turnIndex];
+            const p = state.players[curId];
+            if (!p) return false;
+            return p.pos === i;
+        };
+
         // 地產卡片彈窗
         const showTileCard = (tile) => {
             if (!tile) return;
@@ -1125,20 +1257,33 @@ const app = createApp({
             });
         };
 
+        const rematch = () => {
+            socket.emit('rematch');
+        };
+
+        const leaveRoom = () => {
+            socket.emit('leaveRoom');
+        };
+
         return {
             state, loading,
             nickname, roomId, joined, isHost, myId,
             logs, animating, scale,
             buildTarget, die1, die2, die1Val, die2Val,
             liquidation,
+            roomList,
             join, start, rollDice, buildHouse,
             sellProperty, declareBankruptcy,
+            rematch, leaveRoom,
             isMyTurn, currPlayerName, myUpgradable,
             isMyLiquidating, ranking,
             totalAssetMap, turnText,
             getGridStyle, getPosClass, getColor, getOwnerColor,
             showTileCard, showPip,
-            isCorner: i => i % 10 === 0
+            isCorner: i => i % 10 === 0,
+            isCurrentTile,
+            refreshRooms,
+            roomStatusText
         };
     }
 });
