@@ -1,3 +1,6 @@
+試玩網址 
+https://taiwan-monopoly.onrender.com 
+
 一、遊戲目標
 
 當其他玩家全部破產，只剩你還活著，你就是贏家。
