@@ -1,17 +1,16 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
-const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
 // 靜態檔案
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname + '/public'));
 
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.sendFile(__dirname + '/index.html');
 });
 
 // --- 1. 遊戲配置 ---
@@ -306,6 +305,46 @@ function nextTurn(room) {
     broadcastState(room);
 }
 
+// Rematch 重開局（保留玩家，重置棋盤與金錢）
+function resetRoomForRematch(room) {
+    const state = room.state;
+
+    // 重置地圖
+    state.map = MAP_DATA.map(t => ({ ...t, owner: null, level: 0 }));
+
+    // 重置玩家
+    for (const pid of Object.keys(state.players)) {
+        const p = state.players[pid];
+        p.pos = 0;
+        p.money = 150000;
+        p.bankrupt = false;
+        p.properties = [];
+        p.connected = true; // 視為重新上線
+    }
+
+    // 清理其他狀態
+    state.lastDice = [0, 0];
+    state.winnerId = null;
+    state.liquidation = null;
+
+    // 確保 order 只包含現有玩家
+    state.order = state.order.filter(id => !!state.players[id]);
+
+    // 回到 PLAYING
+    state.status = 'PLAYING';
+    state.turnIndex = 0;
+
+    const firstId = state.order[0];
+    if (firstId) {
+        io.to(room.id).emit('turn', firstId);
+        io.to(room.id).emit(
+            'globalMsg',
+            `新的一局開始！由 ${state.players[firstId].name} 先手。`
+        );
+    }
+    broadcastState(room);
+}
+
 // 移動與格子事件
 function handleMove(room, playerId, steps, diceTotal) {
     const state = room.state;
@@ -420,6 +459,22 @@ function handleMove(room, playerId, steps, diceTotal) {
 
 io.on('connection', (socket) => {
 
+    // 顯示房間列表
+    socket.on('listRooms', () => {
+        const list = [];
+        rooms.forEach((room, id) => {
+            const s = room.state;
+            const playerCount = Object.keys(s.players).length;
+            if (playerCount === 0) return; // 不顯示空房
+            list.push({
+                id,
+                playerCount,
+                status: s.status
+            });
+        });
+        socket.emit('roomList', list);
+    });
+
     // 加入 / 建立房間
     socket.on('joinRoom', ({ roomId, nickname, playerId }) => {
         const trimmedRoom = (roomId || 'ROOM1').toString().trim().toUpperCase();
@@ -499,6 +554,20 @@ io.on('connection', (socket) => {
             `遊戲開始！由 ${state.players[cur].name} 先手。`
         );
         broadcastState(room);
+    });
+
+    // Rematch 再來一局（房主限定）
+    socket.on('rematch', () => {
+        const sess = clientSessions.get(socket.id);
+        if (!sess) return;
+        const room = getRoom(sess.roomId);
+        const state = room.state;
+        const pid = sess.playerId;
+
+        if (state.status !== 'ENDED') return;
+        if (state.hostId !== pid) return;
+
+        resetRoomForRematch(room);
     });
 
     // 擲骰子
@@ -698,6 +767,61 @@ io.on('connection', (socket) => {
         nextTurn(room);
     });
 
+    // 玩家主動退出房間（不關閉 socket，可再加入其他房）
+    socket.on('leaveRoom', () => {
+        const sess = clientSessions.get(socket.id);
+        if (!sess) {
+            socket.emit('leftRoom');
+            return;
+        }
+        const { roomId, playerId } = sess;
+        clientSessions.delete(socket.id);
+
+        socket.leave(roomId);
+        socket.leave(playerId);
+
+        const room = rooms.get(roomId);
+        if (!room) {
+            socket.emit('leftRoom');
+            return;
+        }
+        const state = room.state;
+        const player = state.players[playerId];
+        if (!player) {
+            socket.emit('leftRoom');
+            return;
+        }
+
+        player.connected = false;
+
+        // 房主轉移
+        if (state.hostId === playerId) {
+            const alive = getAlivePlayerIds(state);
+            const nextHost = alive.find(id => id !== playerId);
+            if (nextHost) {
+                state.hostId = nextHost;
+                io.to(room.id).emit(
+                    'globalMsg',
+                    `房主 ${player.name} 離開，房主改為 ${state.players[nextHost].name}`
+                );
+            } else {
+                state.hostId = null;
+            }
+        }
+
+        // 在 LOBBY 直接移除玩家
+        if (state.status === 'LOBBY') {
+            delete state.players[playerId];
+            state.order = state.order.filter(id => id !== playerId);
+        }
+
+        io.to(room.id).emit('globalMsg', `${player.name} 離開了房間 ${room.id}`);
+        broadcastState(room);
+
+        // 回應前端
+        socket.emit('leftRoom');
+    });
+
     // 斷線
     socket.on('disconnect', () => {
         const sess = clientSessions.get(socket.id);
@@ -722,6 +846,8 @@ io.on('connection', (socket) => {
                     'globalMsg',
                     `房主 ${player.name} 離線，房主改為 ${state.players[nextHost].name}`
                 );
+            } else {
+                state.hostId = null;
             }
         }
 
