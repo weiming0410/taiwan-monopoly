@@ -58,7 +58,6 @@
                 0 0 0 3px rgba(148,163,184,0.35),
                 0 0 0 10px rgba(15,23,42,0.9);
             display: grid;
-            /* 外圈較厚，中間區域縮小一點 */
             grid-template-columns: 1.5fr repeat(9, 0.7fr) 1.5fr;
             grid-template-rows: 1.5fr repeat(9, 0.7fr) 1.5fr;
             position: relative;
@@ -113,6 +112,12 @@
         .panel-sub {
             font-size:11px;
             opacity:0.85;
+        }
+        .panel-header-right {
+            display:flex;
+            flex-direction:column;
+            align-items:flex-end;
+            gap:4px;
         }
         .panel-badge {
             font-size:11px;
@@ -244,7 +249,6 @@
             color:#4b5563;
         }
 
-        /* 棋格：改成較厚、有色塊、圓角一點 */
         .tile {
             border: 1px solid rgba(148,163,184,0.55);
             position: relative;
@@ -262,7 +266,6 @@
             transform: translateY(-1px);
             z-index:5;
         }
-        /* 當前玩家所在格子高亮 */
         .tile-current {
             box-shadow:0 0 0 3px rgba(250,204,21,0.95), 0 0 16px rgba(250,204,21,0.8);
             transform: translateY(-2px);
@@ -515,6 +518,14 @@
                                 </li>
                             </ol>
                         </div>
+                        <div style="margin-top:14px;">
+                            <button v-if="isHost" class="btn-action btn-build" @click="rematch">
+                                <i class="fa-solid fa-rotate-right"></i> 再來一局
+                            </button>
+                            <div v-else style="font-size:12px;color:#6b7280;margin-top:6px;">
+                                等待房主決定是否再來一局...
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -531,9 +542,15 @@
                         {{ turnText }}
                     </div>
                 </div>
-                <div class="panel-badge">
-                    <i class="fa-solid fa-users"></i>
-                    {{ Object.keys(state.players).length }}/4
+                <div class="panel-header-right">
+                    <div class="panel-badge">
+                        <i class="fa-solid fa-users"></i>
+                        {{ Object.keys(state.players).length }}/4
+                    </div>
+                    <div class="panel-badge" style="font-size:10px;padding:3px 8px;">
+                        <i class="fa-solid fa-car"></i>
+                        停車彩金池 ${{ state.freeParkingPot || 0 }}
+                    </div>
                 </div>
             </div>
 
@@ -548,6 +565,14 @@
                     </div>
                     <div class="player-sub">
                         總資產: ${{ totalAssetMap[pid] || state.players[pid].money }}
+                    </div>
+                    <div class="player-sub" v-if="state.players[pid].inJail">
+                        <i class="fa-solid fa-bars"></i>
+                        監獄中：第 {{ state.players[pid].jailTurns }}/{{ state.players[pid].requiredJailTurns || 3 }} 回合
+                    </div>
+                    <div class="player-sub" v-if="state.players[pid].jailCards > 0">
+                        <i class="fa-solid fa-id-card-clip"></i>
+                        出獄卡：{{ state.players[pid].jailCards }} 張
                     </div>
                 </div>
                 <div style="font-weight:bold; color:#fde047">${{ state.players[pid].money }}</div>
@@ -631,7 +656,8 @@ const app = createApp({
             turnIndex: 0,
             status: 'LOBBY',
             hostId: null,
-            winnerId: null
+            winnerId: null,
+            freeParkingPot: 0
         });
 
         const nickname = ref('');
@@ -689,6 +715,12 @@ const app = createApp({
             const curId = state.order[state.turnIndex];
             const p = state.players[curId];
             if (!p) return '等待玩家加入';
+
+            if (p.inJail) {
+                const now = p.jailTurns || 0;
+                const need = p.requiredJailTurns || 3;
+                return `輪到 ${p.name} 的回合（監獄中，第 ${now}/${need} 回合）`;
+            }
             return `輪到 ${p.name} 的回合`;
         });
 
@@ -780,8 +812,10 @@ const app = createApp({
             if (res.moneyChange && res.moneyChange !== 0) {
                 const color = res.moneyChange > 0 ? '#22c55e' : '#ef4444';
                 const txt = (res.moneyChange > 0 ? '+' : '') + '$' + res.moneyChange;
-                const endPos = res.path[res.path.length - 1];
-                showFloatText(txt, color, endPos);
+                const endPos = res.path.length > 0 ? res.path[res.path.length - 1] : state.players[res.playerId]?.pos;
+                if (endPos !== undefined) {
+                    showFloatText(txt, color, endPos);
+                }
             }
 
             if (res.playerId === myId.value && state.status === 'PLAYING') {
@@ -803,6 +837,30 @@ const app = createApp({
                 } else if (res.event.type === 'CARD') {
                     await showCardAnimation(res.event);
                     socket.emit('endTurn');
+                } else if (res.event.type === 'JAIL_WAIT') {
+                    await Swal.fire({
+                        icon: 'info',
+                        title: '仍在監獄中',
+                        text: res.event.text || '你還不能行動，請等待下一回合。',
+                        confirmButtonText: '好',
+                        confirmButtonColor: '#64748b'
+                    });
+                    socket.emit('endTurn');
+                } else if (res.event.type === 'FREE_PARKING' || res.event.type === 'FREE_PARKING_EMPTY') {
+                    const pot = res.event.amount || 0;
+                    const msg = res.event.type === 'FREE_PARKING'
+                        ? `你在免費停車抽走彩金 $${pot}`
+                        : '你來到免費停車，但目前沒有彩金。';
+                    appendLog(msg);
+                    await Swal.fire({
+                        toast: true,
+                        position: 'top',
+                        icon: 'info',
+                        title: msg,
+                        timer: 2200,
+                        showConfirmButton: false
+                    });
+                    socket.emit('endTurn');
                 } else {
                     let msg = '';
                     if (res.event.type === 'PAY_RENT') {
@@ -810,7 +868,7 @@ const app = createApp({
                     } else if (res.event.type === 'TAX') {
                         msg = `繳納稅金 $${res.event.amount}`;
                     } else if (res.event.type === 'JAIL') {
-                        msg = '前往監獄';
+                        msg = res.event.text || '前往監獄';
                     }
 
                     if (msg) {
@@ -1019,7 +1077,6 @@ const app = createApp({
         const getOwnerColor = oid => state.players[oid]?.color || 'transparent';
         const getOwnerName = oid => state.players[oid]?.name || '無';
 
-        // 每個格子的顏色背景（高級桌遊感）
         const getTileStyle = (tile) => {
             if (!tile) return {};
             if (tile.type === 'PROP') {
@@ -1056,7 +1113,6 @@ const app = createApp({
             return {};
         };
 
-        // 判斷目前玩家所在格
         const isCurrentTile = (index) => {
             if (state.status !== 'PLAYING') return false;
             const curId = state.order[state.turnIndex];
@@ -1118,9 +1174,75 @@ const app = createApp({
             });
         };
 
-        // 機會 / 命運卡動畫
+        // 機會 / 命運卡動畫（區分 MONEY / SPECIAL / JAIL）
         const showCardAnimation = (event) => {
-            const amount = event.amount || event.val || 0;
+            const deckIcon = event.deck === 'CHANCE' ? 'fa-shuffle' : 'fa-star-of-life';
+            const baseTitle = event.title || (event.deck === 'CHANCE' ? '機會卡' : '命運卡');
+
+            // SPECIAL：出獄卡
+            if (event.category === 'SPECIAL') {
+                const html = `
+                    <div class="card-anim">
+                        <div class="card-anim-tag" style="background:rgba(34,197,94,0.18); color:#22c55e;">
+                            <i class="fa-solid ${deckIcon}"></i>
+                            ${baseTitle}
+                        </div>
+                        <div class="card-anim-title">${event.text}</div>
+                        <div class="card-anim-text">
+                            你獲得一張 <strong>出獄免費卡</strong>，之後被關可以直接使用逃出監獄。
+                        </div>
+                    </div>
+                `;
+                return Swal.fire({
+                    html,
+                    showConfirmButton: true,
+                    confirmButtonText: '太好了',
+                    width: 420,
+                    background: 'transparent',
+                    didOpen: (popup) => {
+                        const card = popup.querySelector('.card-anim');
+                        if (card) {
+                            gsap.from(card, { y: 60, opacity: 0, scale:0.8, duration: 0.6, ease: "back.out(1.7)" });
+                        }
+                    }
+                }).then(() => {
+                    appendLog(`出獄卡：${event.text}`);
+                });
+            }
+
+            // JAIL：被關
+            if (event.category === 'JAIL') {
+                const html = `
+                    <div class="card-anim">
+                        <div class="card-anim-tag" style="background:rgba(239,68,68,0.18); color:#ef4444;">
+                            <i class="fa-solid ${deckIcon}"></i>
+                            ${baseTitle}
+                        </div>
+                        <div class="card-anim-title">${event.text}</div>
+                        <div class="card-anim-text">
+                            你被送進監獄，將暫時無法行動，只能在監獄中等待或擲出雙骰／用出獄卡離開。
+                        </div>
+                    </div>
+                `;
+                return Swal.fire({
+                    html,
+                    showConfirmButton: true,
+                    confirmButtonText: '唉...',
+                    width: 420,
+                    background: 'transparent',
+                    didOpen: (popup) => {
+                        const card = popup.querySelector('.card-anim');
+                        if (card) {
+                            gsap.from(card, { y: 60, opacity: 0, scale:0.8, duration: 0.6, ease: "back.out(1.7)" });
+                        }
+                    }
+                }).then(() => {
+                    appendLog(`被關進監獄：${event.text}`);
+                });
+            }
+
+            // MONEY：金額變動
+            const amount = event.amount ?? event.val ?? 0;
             const positive = amount >= 0;
             const sign = positive ? '+' : '';
             const tagColor = positive ? '#22c55e' : '#ef4444';
@@ -1129,8 +1251,8 @@ const app = createApp({
             const html = `
                 <div class="card-anim">
                     <div class="card-anim-tag" style="background:${tagBg}; color:${tagColor};">
-                        <i class="fa-solid ${event.deck === 'CHANCE' ? 'fa-shuffle' : 'fa-star-of-life'}"></i>
-                        ${event.title}
+                        <i class="fa-solid ${deckIcon}"></i>
+                        ${baseTitle}
                     </div>
                     <div class="card-anim-title">${event.text}</div>
                     <div class="card-anim-text">
@@ -1155,7 +1277,7 @@ const app = createApp({
                     }
                 }
             }).then(() => {
-                appendLog(`${event.title}: ${event.text} (${sign}$${Math.abs(amount)})`);
+                appendLog(`${baseTitle}: ${event.text} (${sign}$${Math.abs(amount)})`);
             });
         };
 
@@ -1177,6 +1299,7 @@ const app = createApp({
         };
 
         const start = () => socket.emit('start');
+        const rematch = () => socket.emit('rematch');
         const rollDice = () => socket.emit('roll');
         const buildHouse = () => {
             if (buildTarget.value) {
@@ -1206,7 +1329,7 @@ const app = createApp({
             logs, animating, scale,
             buildTarget, die1, die2, die1Val, die2Val,
             liquidation,
-            join, start, rollDice, buildHouse,
+            join, start, rematch, rollDice, buildHouse,
             sellProperty, declareBankruptcy,
             isMyTurn, currPlayerName, myUpgradable,
             isMyLiquidating, ranking,
