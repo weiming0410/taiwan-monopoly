@@ -62,7 +62,7 @@ const MAP_DATA = [
     { id: 39, name: "豪華稅", type: "TAX", amount: 3000 }
 ];
 
-// --- 機會 / 命運卡：各 50 張樣本（全不同） ---
+// --- 機會 / 命運卡：各 50 張樣本（多數是金錢，部分為監獄 / 出獄卡） ---
 
 // 機會卡：偏日常事件、短期幸運 / 意外支出
 const CHANCE_CARDS = [
@@ -119,7 +119,19 @@ const CHANCE_CARDS = [
     { text: "鄰居送你自家農產品，等值 $600", val: 600 },
     { text: "熟客介紹帶來訂單，額外收入 $2000", val: 2000 },
     { text: "參加抽獎中到機票，估計價值 $3500", val: 3500 },
-    { text: "環保回收兌換，獲得 $400", val: 400 }
+    { text: "環保回收兌換，獲得 $400", val: 400 },
+
+    // 新增：出獄卡 / 被關幾回合
+    { text: "司法誤判，獲得一張「出獄免費卡」", val: 0, getOutOfJail: true },
+    { text: "公益形象佳，警方給你一張「出獄免費卡」", val: 0, getOutOfJail: true },
+    { text: "醉酒鬧事，被關進監獄 2 回合", val: 0, jail: true, jailTurns: 2 },
+    { text: "夜店糾紛，被警察帶回調查 1 回合", val: 0, jail: true, jailTurns: 1 },
+    { text: "誤入管制區，被拘留 3 回合", val: 0, jail: true, jailTurns: 3 },
+    { text: "熱心協助辦案，獲得一張「出獄免費卡」", val: 0, getOutOfJail: true },
+    { text: "被誤認為嫌疑人，被關進監獄 2 回合", val: 0, jail: true, jailTurns: 2 },
+    { text: "節慶夜晚街頭喧嘩，被關 1 回合", val: 0, jail: true, jailTurns: 1 },
+    { text: "替警局做公益宣傳，獲得「出獄免費卡」", val: 0, getOutOfJail: true },
+    { text: "超速被逮捕，關進監獄 2 回合", val: 0, jail: true, jailTurns: 2 }
 ];
 
 // 命運卡：偏中長期影響、投資 / 財務 / 人生事件
@@ -177,8 +189,25 @@ const DESTINY_CARDS = [
     { text: "家庭聚會請客，支出 $1600", val: -1600 },
     { text: "為自己安排進修課程，學費 $2100", val: -2100 },
     { text: "為健康辦健身會籍，支出 $1900", val: -1900 },
-    { text: "帶家人出國旅遊一趟，支出 $4800", val: -4800 }
+    { text: "帶家人出國旅遊一趟，支出 $4800", val: -4800 },
+
+    // 新增：出獄卡 / 被關幾回合（偏人生大事件）
+    { text: "你在公益活動表現優異，獲得一張「出獄免費卡」", val: 0, getOutOfJail: true },
+    { text: "協助警方調查重大案件，獲得「出獄免費卡」", val: 0, getOutOfJail: true },
+    { text: "公司捲入醜聞，你被列為關鍵證人，被關 3 回合", val: 0, jail: true, jailTurns: 3 },
+    { text: "捲入投資詐欺案調查，被關 2 回合", val: 0, jail: true, jailTurns: 2 },
+    { text: "政治集會中被誤抓，被關 1 回合", val: 0, jail: true, jailTurns: 1 },
+    { text: "長期服務弱勢團體，獲得「出獄免費卡」", val: 0, getOutOfJail: true },
+    { text: "環保抗議行動遭逮捕，被關 2 回合", val: 0, jail: true, jailTurns: 2 },
+    { text: "在國際案件中協助調查，獲得「出獄免費卡」", val: 0, getOutOfJail: true },
+    { text: "被誤認為通緝犯，被關 2 回合", val: 0, jail: true, jailTurns: 2 },
+    { text: "在法院證明清白，法官贈與一張「出獄免費卡」", val: 0, getOutOfJail: true }
 ];
+
+// 監獄與彩金池常數
+const JAIL_TILE_INDEX = 10;
+const MAX_JAIL_TURNS = 3;
+const JAIL_FINE = 3000; // 付錢出獄金額
 
 // --- 2. 多房間遊戲狀態 (room-based) ---
 
@@ -192,7 +221,10 @@ function createInitialState() {
         lastDice: [0, 0],
         hostId: null,
         winnerId: null,
-        liquidation: null     // { playerId, creditorId, reason }
+        liquidation: null,    // { playerId, creditorId, reason }
+        freeParkingPot: 0,    // 免費停車彩金池
+        extraTurnFor: null,   // 因 double 而獲得額外回合的玩家
+        doubleChain: null     // { playerId, count } 連續 double 次數
     };
 }
 
@@ -314,6 +346,28 @@ function adjustMoney(room, playerId, amount, opts = {}) {
     }
 }
 
+// 送進監獄
+function sendToJail(room, playerId, jailTurnsToServe = MAX_JAIL_TURNS, source = 'TILE') {
+    const state = room.state;
+    const player = state.players[playerId];
+    if (!player) return;
+
+    player.pos = JAIL_TILE_INDEX;
+    player.inJail = true;
+    player.jailTurns = 0;
+    player.requiredJailTurns = jailTurnsToServe;
+
+    // 清除 double 狀態與額外回合
+    if (state.doubleChain && state.doubleChain.playerId === playerId) {
+        state.doubleChain = null;
+    }
+    if (state.extraTurnFor === playerId) {
+        state.extraTurnFor = null;
+    }
+
+    io.to(room.id).emit('globalMsg', `${player.name} 被送往監獄 (${source})！`);
+}
+
 // 破產：釋出資產 + 移除回合 + 檢查結束 + 自動換人
 function handleBankruptcy(room, playerId, creditorId, reason = '') {
     const state = room.state;
@@ -340,6 +394,9 @@ function handleBankruptcy(room, playerId, creditorId, reason = '') {
     if (state.turnIndex >= state.order.length) state.turnIndex = 0;
 
     state.liquidation = null;
+    state.extraTurnFor = null;
+    state.doubleChain = null;
+
     checkGameEnd(room);
     if (state.status === 'PLAYING') {
         nextTurn(room);
@@ -387,6 +444,25 @@ function nextTurn(room) {
     broadcastState(room);
 }
 
+// 結束回合或給同一玩家額外回合（double）
+function finishTurnOrExtra(room, playerId) {
+    const state = room.state;
+    const player = state.players[playerId];
+    if (!player) return;
+
+    if (state.extraTurnFor === playerId && !state.liquidation && !player.bankrupt) {
+        state.extraTurnFor = null;
+        state.doubleChain = null;
+        io.to(room.id).emit('globalMsg', `${player.name} 因為擲出雙骰，獲得一次額外行動！`);
+        io.to(room.id).emit('turn', playerId);
+        broadcastState(room);
+    } else {
+        state.extraTurnFor = null;
+        state.doubleChain = null;
+        nextTurn(room);
+    }
+}
+
 // Rematch 重開局（保留玩家，重置棋盤與金錢）
 function resetRoomForRematch(room) {
     const state = room.state;
@@ -401,13 +477,20 @@ function resetRoomForRematch(room) {
         p.money = 150000;
         p.bankrupt = false;
         p.properties = [];
-        p.connected = true; // 視為重新上線
+        p.connected = true;
+        p.inJail = false;
+        p.jailTurns = 0;
+        p.requiredJailTurns = MAX_JAIL_TURNS;
+        p.jailCards = 0;
     }
 
     // 清理其他狀態
     state.lastDice = [0, 0];
     state.winnerId = null;
     state.liquidation = null;
+    state.freeParkingPot = 0;
+    state.extraTurnFor = null;
+    state.doubleChain = null;
 
     // 確保 order 只包含現有玩家
     state.order = state.order.filter(id => !!state.players[id]);
@@ -437,6 +520,7 @@ function handleMove(room, playerId, steps, diceTotal) {
 
     player.pos = newPos;
 
+    // 經過起點
     if (newPos < oldPos) {
         adjustMoney(room, playerId, 2000, { reason: '經過起點', allowLiquidation: false });
         io.to(room.id).emit(
@@ -487,6 +571,8 @@ function handleMove(room, playerId, steps, diceTotal) {
         }
     }
     else if (tile.type === 'TAX') {
+        // 稅金進彩金池
+        state.freeParkingPot += tile.amount;
         adjustMoney(room, playerId, -tile.amount, {
             reason: '繳稅',
             allowLiquidation: true
@@ -498,43 +584,175 @@ function handleMove(room, playerId, steps, diceTotal) {
         };
         io.to(room.id).emit(
             'globalMsg',
-            `${player.name} 繳稅 $${tile.amount}`
+            `${player.name} 繳稅 $${tile.amount}（已加入免費停車彩金池）`
         );
     }
     else if (tile.type === 'CHANCE' || tile.type === 'DESTINY') {
         const cards = tile.type === 'CHANCE' ? CHANCE_CARDS : DESTINY_CARDS;
         const card = cards[Math.floor(Math.random() * cards.length)];
-        adjustMoney(room, playerId, card.val, {
-            reason: tile.type === 'CHANCE' ? '機會卡' : '命運卡',
-            allowLiquidation: true
-        });
+        const val = card.val || 0;
 
-        event = {
-            type: 'CARD',
-            category: 'MONEY',
-            deck: tile.type,
-            title: tile.type === 'CHANCE' ? '機會卡' : '命運卡',
-            text: card.text,
-            amount: card.val,
-            val: card.val
-        };
+        if (card.getOutOfJail) {
+            player.jailCards = (player.jailCards || 0) + 1;
+            event = {
+                type: 'CARD',
+                category: 'SPECIAL',
+                deck: tile.type,
+                title: '獲得出獄卡',
+                text: card.text,
+                amount: 0,
+                val: 0
+            };
+            io.to(room.id).emit(
+                'globalMsg',
+                `${player.name} 抽中卡片：${card.text}（獲得一張出獄卡）`
+            );
+        } else if (card.jail) {
+            const jailTurns = card.jailTurns || MAX_JAIL_TURNS;
+            sendToJail(room, playerId, jailTurns, 'CARD');
+            event = {
+                type: 'CARD',
+                category: 'JAIL',
+                deck: tile.type,
+                title: '被關進監獄',
+                text: card.text,
+                amount: 0,
+                val: 0
+            };
+            io.to(room.id).emit(
+                'globalMsg',
+                `${player.name} 抽中卡片：${card.text}（被關進監獄 ${jailTurns} 回合）`
+            );
+        } else {
+            if (val < 0) {
+                state.freeParkingPot += -val; // 負值代表支出給銀行，進彩金池
+            }
+            adjustMoney(room, playerId, val, {
+                reason: tile.type === 'CHANCE' ? '機會卡' : '命運卡',
+                allowLiquidation: true
+            });
 
-        io.to(room.id).emit(
-            'globalMsg',
-            `${player.name} 抽中卡片: ${card.text}`
-        );
+            event = {
+                type: 'CARD',
+                category: 'MONEY',
+                deck: tile.type,
+                title: tile.type === 'CHANCE' ? '機會卡' : '命運卡',
+                text: card.text,
+                amount: val,
+                val: val
+            };
+
+            io.to(room.id).emit(
+                'globalMsg',
+                `${player.name} 抽中卡片: ${card.text}`
+            );
+        }
     }
     else if (tile.type === 'GOTO_JAIL') {
-        player.pos = 10;
+        sendToJail(room, playerId, MAX_JAIL_TURNS, 'TILE');
         event = { type: 'JAIL' };
-        io.to(room.id).emit(
-            'globalMsg',
-            `${player.name} 前往監獄`
-        );
+    }
+    else if (tile.type === 'FREE_PARKING') {
+        const pot = state.freeParkingPot || 0;
+        if (pot > 0) {
+            adjustMoney(room, playerId, pot, {
+                reason: '免費停車彩金',
+                allowLiquidation: false
+            });
+            event = { type: 'FREE_PARKING', category: 'MONEY', amount: pot };
+            io.to(room.id).emit(
+                'globalMsg',
+                `${player.name} 在免費停車領取彩金 $${pot}！`
+            );
+            state.freeParkingPot = 0;
+        } else {
+            event = { type: 'FREE_PARKING_EMPTY', category: 'INFO', amount: 0 };
+            io.to(room.id).emit(
+                'globalMsg',
+                `${player.name} 抵達免費停車（目前沒有彩金）`
+            );
+        }
     }
 
     const moneyChange = player.money - oldMoney;
     return { event, moneyChange };
+}
+
+// 一般擲骰邏輯（不在監獄時、或剛出獄）
+function normalRoll(room, playerId, options = {}) {
+    const state = room.state;
+    const player = state.players[playerId];
+    if (!player) return;
+
+    let d1, d2;
+    if (options.presetDice) {
+        [d1, d2] = options.presetDice;
+    } else {
+        d1 = Math.floor(Math.random() * 6) + 1;
+        d2 = Math.floor(Math.random() * 6) + 1;
+    }
+    const steps = d1 + d2;
+    state.lastDice = [d1, d2];
+    const isDouble = d1 === d2;
+
+    // 追蹤連續 double
+    if (isDouble) {
+        if (state.doubleChain && state.doubleChain.playerId === playerId) {
+            state.doubleChain.count += 1;
+        } else {
+            state.doubleChain = { playerId, count: 1 };
+        }
+    } else {
+        state.doubleChain = null;
+    }
+
+    // 三次連續 double：直接送進監獄，不移動
+    if (state.doubleChain && state.doubleChain.count >= 3) {
+        sendToJail(room, playerId, MAX_JAIL_TURNS, 'DOUBLE');
+        state.doubleChain = null;
+        state.extraTurnFor = null;
+
+        io.to(room.id).emit('rollResult', {
+            roomId: room.id,
+            playerId,
+            dice: state.lastDice,
+            path: [],
+            event: {
+                type: 'JAIL',
+                category: 'MOVE',
+                text: '連續三次擲出雙骰，被送進監獄！'
+            },
+            moneyChange: 0,
+            newState: state
+        });
+        return;
+    }
+
+    // 正常移動
+    const oldPos = player.pos;
+    const path = [];
+    for (let i = 1; i <= steps; i++) {
+        path.push((oldPos + i) % state.map.length);
+    }
+
+    const { event, moneyChange } = handleMove(room, playerId, steps, steps);
+
+    // 若是 double 且沒有進入變賣 / 監獄，給予額外回合
+    if (isDouble && !player.inJail && !state.liquidation) {
+        state.extraTurnFor = playerId;
+    } else {
+        state.extraTurnFor = null;
+    }
+
+    io.to(room.id).emit('rollResult', {
+        roomId: room.id,
+        playerId,
+        dice: state.lastDice,
+        path,
+        event,
+        moneyChange,
+        newState: state
+    });
 }
 
 // --- 3. Socket.IO 事件 ---
@@ -597,7 +815,11 @@ io.on('connection', (socket) => {
                 color,
                 bankrupt: false,
                 connected: true,
-                properties: []
+                properties: [],
+                inJail: false,
+                jailTurns: 0,
+                requiredJailTurns: MAX_JAIL_TURNS,
+                jailCards: 0
             };
             state.players[pid] = player;
             state.order.push(pid);
@@ -666,30 +888,94 @@ io.on('connection', (socket) => {
         if (state.order[state.turnIndex] !== pid) return;
         if (state.map.some(t => t.tempLock === pid)) return;
 
-        const d1 = Math.floor(Math.random() * 6) + 1;
-        const d2 = Math.floor(Math.random() * 6) + 1;
-        const steps = d1 + d2;
-        state.lastDice = [d1, d2];
-
         const player = state.players[pid];
-        const oldPos = player.pos;
+        if (!player) return;
 
-        const path = [];
-        for (let i = 1; i <= steps; i++) {
-            path.push((oldPos + i) % state.map.length);
+        // 在監獄中的特殊處理
+        if (player.inJail) {
+            // 有出獄卡：直接使用
+            if (player.jailCards > 0) {
+                player.jailCards -= 1;
+                player.inJail = false;
+                player.jailTurns = 0;
+                io.to(room.id).emit('globalMsg', `${player.name} 使用出獄卡，離開監獄！`);
+                normalRoll(room, pid);
+                return;
+            }
+
+            // 沒有出獄卡：擲骰看看有沒有 double
+            const d1 = Math.floor(Math.random() * 6) + 1;
+            const d2 = Math.floor(Math.random() * 6) + 1;
+            const steps = d1 + d2;
+            state.lastDice = [d1, d2];
+
+            if (d1 === d2) {
+                // double：直接出獄並依照點數移動
+                player.inJail = false;
+                player.jailTurns = 0;
+                io.to(room.id).emit('globalMsg', `${player.name} 擲出雙骰，成功出獄！`);
+                normalRoll(room, pid, { presetDice: [d1, d2] });
+                return;
+            }
+
+            // 沒有 double：累積監獄回合數
+            player.jailTurns += 1;
+
+            if (player.jailTurns >= (player.requiredJailTurns || MAX_JAIL_TURNS)) {
+                // 滿回合，自動支付罰金出獄，再走剛剛的步數
+                state.freeParkingPot += JAIL_FINE;
+                adjustMoney(room, pid, -JAIL_FINE, {
+                    reason: '監獄罰金',
+                    allowLiquidation: true
+                });
+
+                if (state.liquidation || player.bankrupt) {
+                    // 進入變賣或破產，不再移動
+                    io.to(room.id).emit('rollResult', {
+                        roomId: room.id,
+                        playerId: pid,
+                        dice: state.lastDice,
+                        path: [],
+                        event: {
+                            type: 'JAIL_WAIT',
+                            category: 'INFO',
+                            text: `你支付了 $${JAIL_FINE} 監獄罰金。`
+                        },
+                        moneyChange: -JAIL_FINE,
+                        newState: state
+                    });
+                    return;
+                }
+
+                player.inJail = false;
+                player.jailTurns = 0;
+                io.to(room.id).emit('globalMsg', `${player.name} 已在監獄待滿 ${player.requiredJailTurns || MAX_JAIL_TURNS} 回合，支付 $${JAIL_FINE} 出獄！`);
+
+                normalRoll(room, pid, { presetDice: [d1, d2] });
+                return;
+            } else {
+                // 還沒滿回合，只是白待
+                io.to(room.id).emit('globalMsg', `${player.name} 在監獄中，第 ${player.jailTurns}/${player.requiredJailTurns || MAX_JAIL_TURNS} 回合。`);
+
+                io.to(room.id).emit('rollResult', {
+                    roomId: room.id,
+                    playerId: pid,
+                    dice: state.lastDice,
+                    path: [],
+                    event: {
+                        type: 'JAIL_WAIT',
+                        category: 'INFO',
+                        text: `你仍在監獄中，第 ${player.jailTurns}/${player.requiredJailTurns || MAX_JAIL_TURNS} 回合。`
+                    },
+                    moneyChange: 0,
+                    newState: state
+                });
+                return;
+            }
         }
 
-        const { event, moneyChange } = handleMove(room, pid, steps, steps);
-
-        io.to(room.id).emit('rollResult', {
-            roomId: room.id,
-            playerId: pid,
-            dice: state.lastDice,
-            path,
-            event,
-            moneyChange,
-            newState: state
-        });
+        // 不在監獄：一般擲骰
+        normalRoll(room, pid);
     });
 
     // 買地
@@ -736,7 +1022,7 @@ io.on('connection', (socket) => {
 
         delete tile.tempLock;
         broadcastState(room);
-        nextTurn(room);
+        finishTurnOrExtra(room, pid);
     });
 
     // 建造房屋 / 飯店
@@ -846,7 +1132,7 @@ io.on('connection', (socket) => {
         if (state.liquidation) return;
         if (state.order[state.turnIndex] !== pid) return;
 
-        nextTurn(room);
+        finishTurnOrExtra(room, pid);
     });
 
     // 玩家主動退出房間（不關閉 socket，可再加入其他房）
